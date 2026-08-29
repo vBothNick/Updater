@@ -1,7 +1,8 @@
-20.2|https://raw.githubusercontent.com/vBothNick/Updater/main/panel.lua
+local SURUM = "20.3"
+
 script_name("MIMGUI Modern Arayuz Paneli")
 script_author("Jakuzi")
-script_version("20.2")
+script_version(SURUM)
 
 require "lib.moonloader"
 local vkeys = require 'vkeys'
@@ -41,7 +42,7 @@ function otomatikGuncellemeKontrolu()
                 local sunucuSurum, indirmeLinki = sunucuVerisi:match("([%d%.]+)|(.+)")
                 
                 if sunucuSurum and indirmeLinki then
-                    local mevcutSurumNumarasi = tonumber(script_version:match("[%d%.]+")) or 0
+                    local mevcutSurumNumarasi = tonumber(SURUM:match("[%d%.]+")) or 0
                     local sunucuSurumNumarasi = tonumber(sunucuSurum) or 0
                     
                     if sunucuSurumNumarasi > mevcutSurumNumarasi then
@@ -904,7 +905,7 @@ local newFrame = imgui.OnFrame(
                 imgui.Text("SAMP.Lua kutuphanesi eksik. Bazi islevler calismayabilir.")
             end
             imgui.Dummy(imgui.ImVec2(0, 5))
-            imgui.TextColored(imgui.ImVec4(0.6, 0.6, 0.6, 1.0), "Guncel Versiyon: v20.2")
+            imgui.TextColored(imgui.ImVec4(0.6, 0.6, 0.6, 1.0), "Guncel Versiyon: v" .. SURUM)
             imgui.EndChild()
 
             imgui.BeginChild("YapimciBilgileri", imgui.ImVec2(0, 160), true)
@@ -1898,7 +1899,7 @@ function main()
     -- GÜNCELLEME KONTROLÜ
     otomatikGuncellemeKontrolu()
     
-    if sampev_yuklu then sampAddChatMessage("{4A90E2}[Sistem] {FFFFFF}Modern Arayuz Paneli (v20.2) yuklendi. Komut: /panel", -1)
+    if sampev_yuklu then sampAddChatMessage("{4A90E2}[Sistem] {FFFFFF}Modern Arayuz Paneli (v" .. SURUM .. ") yuklendi. Komut: /panel", -1)
     else sampAddChatMessage("{4A90E2}[Sistem] {FFFFFF}Uyari: SAMP.Lua kutuphanesi eksik. Bazi islevler calismayabilir.", -1) end
     
     sampRegisterChatCommand("panel", function()
