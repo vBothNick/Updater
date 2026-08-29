@@ -1,4 +1,4 @@
-local SURUM = "20.5"
+local SURUM = "20.2"
 
 script_name("MIMGUI Modern Arayuz Paneli")
 script_author("Jakuzi")
@@ -25,39 +25,57 @@ else
 end
 
 -- ==========================================
--- OTOMATİK GÜNCELLEME MODÜLÜ (AUTO-UPDATER)
+-- OTOMATİK GÜNCELLEME MODÜLÜ (GÜVENLİ SİSTEM)
 -- ==========================================
 local guncellemeURL = "https://raw.githubusercontent.com/vBothNick/Updater/main/update.txt"
 local scriptYolu = thisScript().path
 
 function otomatikGuncellemeKontrolu()
-    downloadUrlToFile(guncellemeURL, getWorkingDirectory() .. "\\update_check.txt", function(id, status, p1, p2)
-        if status == 58 then 
-            local f = io.open(getWorkingDirectory() .. "\\update_check.txt", "r")
-            if f then
-                local sunucuVerisi = f:read("*a")
-                f:close()
-                os.remove(getWorkingDirectory() .. "\\update_check.txt") 
-                
-                local sunucuSurum, indirmeLinki = sunucuVerisi:match("([%d%.]+)|(.+)")
-                
-                if sunucuSurum and indirmeLinki then
-                    local mevcutSurumNumarasi = tonumber(SURUM:match("[%d%.]+")) or 0
-                    local sunucuSurumNumarasi = tonumber(sunucuSurum) or 0
+    lua_thread.create(function()
+        wait(2000) -- Oyun açıldıktan sonra 2 saniye bekler, sistemin rahatlamasını sağlar.
+        downloadUrlToFile(guncellemeURL, getWorkingDirectory() .. "\\update_check.txt", function(id, status, p1, p2)
+            if status == 58 then 
+                local f = io.open(getWorkingDirectory() .. "\\update_check.txt", "r")
+                if f then
+                    local sunucuVerisi = f:read("*a")
+                    f:close()
+                    os.remove(getWorkingDirectory() .. "\\update_check.txt") 
                     
-                    if sunucuSurumNumarasi > mevcutSurumNumarasi then
-                        sampAddChatMessage("{4A90E2}[Sistem] {FFFFFF}Panel icin yeni bir guncelleme bulundu (v" .. sunucuSurum .. "). Indiriliyor...", -1)
+                    local sunucuSurum, indirmeLinki = sunucuVerisi:match("([%d%.]+)|(.+)")
+                    
+                    if sunucuSurum and indirmeLinki then
+                        local mevcutSurumNumarasi = tonumber(SURUM:match("[%d%.]+")) or 0
+                        local sunucuSurumNumarasi = tonumber(sunucuSurum) or 0
                         
-                        downloadUrlToFile(indirmeLinki, scriptYolu, function(id2, status2, p12, p22)
-                            if status2 == 58 then
-                                sampAddChatMessage("{4A90E2}[Sistem] {FFFFFF}Guncelleme basariyla kuruldu! Panel yeniden baslatiliyor...", -1)
-                                thisScript():reload()
-                            end
-                        end)
+                        if sunucuSurumNumarasi > mevcutSurumNumarasi then
+                            sampAddChatMessage("{4A90E2}[Sistem] {FFFFFF}Panel icin yeni bir guncelleme bulundu (v" .. sunucuSurum .. "). Indiriliyor...", -1)
+                            
+                            local geciciDosya = getWorkingDirectory() .. "\\panel_yeni.lua"
+                            downloadUrlToFile(indirmeLinki, geciciDosya, function(id2, status2, p12, p22)
+                                if status2 == 58 then
+                                    local yeniKod = io.open(geciciDosya, "r")
+                                    local asilKod = io.open(scriptYolu, "w")
+                                    
+                                    if yeniKod and asilKod then
+                                        asilKod:write(yeniKod:read("*a"))
+                                        yeniKod:close()
+                                        asilKod:close()
+                                        os.remove(geciciDosya)
+                                        
+                                        sampAddChatMessage("{4A90E2}[Sistem] {FFFFFF}Guncelleme basariyla kuruldu! Panel yeniden baslatiliyor...", -1)
+                                        thisScript():reload()
+                                    else
+                                        if yeniKod then yeniKod:close() end
+                                        if asilKod then asilKod:close() end
+                                        sampAddChatMessage("{FF0000}[Hata] {FFFFFF}Guncelleme yapilamadi. Dosya bir editor tarafindan acik tutuluyor olabilir.", -1)
+                                    end
+                                end
+                            end)
+                        end
                     end
                 end
             end
-        end
+        end)
     end)
 end
 -- ==========================================
