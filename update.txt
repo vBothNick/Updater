@@ -1,4 +1,4 @@
-local SURUM = "20.2"
+local SURUM = "20.3"
 
 script_name("MIMGUI Modern Arayuz Paneli")
 script_author("Jakuzi")
