@@ -1,5 +1,5 @@
 local guncellemeURL = "https://raw.githubusercontent.com/vBothNick/Updater/main/update.txt"
-local SURUM = "20.6"
+local SURUM = "1.0"
 
 script_name("MIMGUI Modern Arayuz Paneli")
 script_author("Jakuzi")
@@ -26,52 +26,39 @@ else
 end
 
 -- ==========================================
--- OTOMATİK GÜNCELLEME MODÜLÜ (GÜVENLİ SİSTEM)
+-- OTOMATİK GÜNCELLEME MODÜLÜ (SİNYAL SİSTEMİ)
 -- ==========================================
 local guncellemeURL = "https://raw.githubusercontent.com/vBothNick/Updater/main/update.txt"
 local scriptYolu = thisScript().path
 
+local guncellemeSinyali = false
+local guncellemeLinki = ""
+local guncellemeSurumu = ""
+
 function otomatikGuncellemeKontrolu()
     lua_thread.create(function()
-        wait(2000) -- Oyun açıldıktan sonra 2 saniye bekler, sistemin rahatlamasını sağlar.
-        downloadUrlToFile(guncellemeURL, getWorkingDirectory() .. "\\update_check.txt", function(id, status, p1, p2)
+        wait(2500) -- Oyun açıldıktan sonra sistemi rahatlatmak icin 2.5 saniye bekle
+        
+        local checkFile = getWorkingDirectory() .. "\\update_check.txt"
+        
+        downloadUrlToFile(guncellemeURL, checkFile, function(id, status, p1, p2)
             if status == 58 then 
-                local f = io.open(getWorkingDirectory() .. "\\update_check.txt", "r")
+                local f = io.open(checkFile, "r")
                 if f then
                     local sunucuVerisi = f:read("*a")
                     f:close()
-                    os.remove(getWorkingDirectory() .. "\\update_check.txt") 
+                    os.remove(checkFile) 
                     
                     local sunucuSurum, indirmeLinki = sunucuVerisi:match("([%d%.]+)|(.+)")
                     
                     if sunucuSurum and indirmeLinki then
-                        local mevcutSurumNumarasi = tonumber(SURUM:match("[%d%.]+")) or 0
-                        local sunucuSurumNumarasi = tonumber(sunucuSurum) or 0
+                        local mevcut = tonumber(SURUM:match("[%d%.]+")) or 0
+                        local sunucu = tonumber(sunucuSurum) or 0
                         
-                        if sunucuSurumNumarasi > mevcutSurumNumarasi then
-                            sampAddChatMessage("{4A90E2}[Sistem] {FFFFFF}Panel icin yeni bir guncelleme bulundu (v" .. sunucuSurum .. "). Indiriliyor...", -1)
-                            
-                            local geciciDosya = getWorkingDirectory() .. "\\panel_yeni.lua"
-                            downloadUrlToFile(indirmeLinki, geciciDosya, function(id2, status2, p12, p22)
-                                if status2 == 58 then
-                                    local yeniKod = io.open(geciciDosya, "r")
-                                    local asilKod = io.open(scriptYolu, "w")
-                                    
-                                    if yeniKod and asilKod then
-                                        asilKod:write(yeniKod:read("*a"))
-                                        yeniKod:close()
-                                        asilKod:close()
-                                        os.remove(geciciDosya)
-                                        
-                                        sampAddChatMessage("{4A90E2}[Sistem] {FFFFFF}Guncelleme basariyla kuruldu! Panel yeniden baslatiliyor...", -1)
-                                        thisScript():reload()
-                                    else
-                                        if yeniKod then yeniKod:close() end
-                                        if asilKod then asilKod:close() end
-                                        sampAddChatMessage("{FF0000}[Hata] {FFFFFF}Guncelleme yapilamadi. Dosya bir editor tarafindan acik tutuluyor olabilir.", -1)
-                                    end
-                                end
-                            end)
+                        if sunucu > mevcut then
+                            guncellemeSurumu = sunucuSurum
+                            guncellemeLinki = indirmeLinki
+                            guncellemeSinyali = true
                         end
                     end
                 end
@@ -1940,6 +1927,43 @@ function main()
     local wasInCar = false
     while true do
         wait(0)
+        
+        -- Guncelleme sinyali geldiyse ana dongu (main thread) icinde ikinci indirmeyi baslat
+        if guncellemeSinyali then
+            guncellemeSinyali = false -- Sinyali kapat ki donguye girmesin
+            
+            lua_thread.create(function()
+                wait(1500) -- Moonloader indirme motorunun kapanmasi icin 1.5 saniye ek mola
+                sampAddChatMessage("{4A90E2}[Sistem] {FFFFFF}Panel icin yeni guncelleme (v" .. guncellemeSurumu .. ") indiriliyor...", -1)
+                
+                local tempFile = getWorkingDirectory() .. "\\panel_temp_" .. os.time() .. ".lua"
+                
+                downloadUrlToFile(guncellemeLinki, tempFile, function(id2, status2, p12, p22)
+                    if status2 == 58 then
+                        local yf = io.open(tempFile, "r")
+                        if yf then
+                            local yeniKod = yf:read("*a")
+                            yf:close()
+                            
+                            local ak = io.open(scriptYolu, "w")
+                            if ak then
+                                ak:write(yeniKod)
+                                ak:close()
+                                os.remove(tempFile)
+                                
+                                sampAddChatMessage("{4A90E2}[Sistem] {FFFFFF}Guncelleme basariyla kuruldu! Panel yeniden baslatiliyor...", -1)
+                                thisScript():reload()
+                            else
+                                sampAddChatMessage("{FF0000}[Hata] {FFFFFF}Dosya bir editor tarafindan kilitlendigi icin yazilamadi.", -1)
+                                os.remove(tempFile)
+                            end
+                        end
+                    elseif status2 == 73 or status2 == 6 then
+                        sampAddChatMessage("{FF0000}[Hata] {FFFFFF}Baglanti veya adres hatasi, guncelleme indirilemedi.", -1)
+                    end
+                end)
+            end)
+        end
         
         local simdi = os.time()
         for i, v in ipairs(otoMesajlar) do
