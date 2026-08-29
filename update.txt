@@ -1,1 +1,1 @@
-1.0|https://raw.githubusercontent.com/vBothNick/Updater/main/panel.lua
+1.5|https://raw.githubusercontent.com/vBothNick/Updater/main/panel.lua
