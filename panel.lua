@@ -1,5 +1,5 @@
 local guncellemeURL = "https://raw.githubusercontent.com/vBothNick/Updater/main/update.txt"
-local SURUM = "20.4"
+local SURUM = "20.3"
 
 script_name("MIMGUI Modern Arayuz Paneli")
 script_author("Jakuzi")
