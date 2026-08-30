@@ -1,5 +1,4 @@
-local guncellemeURL = "https://raw.githubusercontent.com/vBothNick/Updater/main/update.txt"
-local SURUM = "1.5"
+local SURUM = "1.6"
 
 script_name("MIMGUI Modern Arayuz Paneli")
 script_author("Jakuzi")
@@ -13,6 +12,7 @@ local inicfg = require 'inicfg'
 local bit = require 'bit'
 
 local sampev_yuklu, sampev = pcall(require, 'samp.events')
+local lfs_yuklu, lfs = pcall(require, 'lfs')
 
 local encoding_yuklu, encoding = pcall(require, 'encoding')
 local u8, u8_decode
@@ -25,22 +25,22 @@ else
     u8_decode = function(s) return s end
 end
 
--- ==========================================
--- OTOMATİK GÜNCELLEME MODÜLÜ (SİNYAL SİSTEMİ)
--- ==========================================
 local guncellemeURL = "https://raw.githubusercontent.com/vBothNick/Updater/main/update.txt"
+local duyuruURL = "https://raw.githubusercontent.com/vBothNick/Updater/main/duyuru.txt"
 local scriptYolu = thisScript().path
 
 local guncellemeSinyali = false
 local guncellemeLinki = ""
 local guncellemeSurumu = ""
 
+local aktifBildirim = false
+local aktifBildirimMetin = ""
+local aktifBildirimZaman = 0.0
+
 function otomatikGuncellemeKontrolu()
     lua_thread.create(function()
-        wait(2500) -- Oyun açıldıktan sonra sistemi rahatlatmak icin 2.5 saniye bekle
-        
+        wait(2500)
         local checkFile = getWorkingDirectory() .. "\\update_check.txt"
-        
         downloadUrlToFile(guncellemeURL, checkFile, function(id, status, p1, p2)
             if status == 58 then 
                 local f = io.open(checkFile, "r")
@@ -50,11 +50,9 @@ function otomatikGuncellemeKontrolu()
                     os.remove(checkFile) 
                     
                     local sunucuSurum, indirmeLinki = sunucuVerisi:match("([%d%.]+)|(.+)")
-                    
                     if sunucuSurum and indirmeLinki then
                         local mevcut = tonumber(SURUM:match("[%d%.]+")) or 0
                         local sunucu = tonumber(sunucuSurum) or 0
-                        
                         if sunucu > mevcut then
                             guncellemeSurumu = sunucuSurum
                             guncellemeLinki = indirmeLinki
@@ -66,12 +64,40 @@ function otomatikGuncellemeKontrolu()
         end)
     end)
 end
--- ==========================================
+
+function globalDuyuruKontrol()
+    lua_thread.create(function()
+        wait(5000)
+        local notifFile = getWorkingDirectory() .. "\\duyuru_check.txt"
+        downloadUrlToFile(duyuruURL, notifFile, function(id, status, p1, p2)
+            if status == 58 then
+                local f = io.open(notifFile, "r")
+                if f then
+                    local data = f:read("*a")
+                    f:close()
+                    os.remove(notifFile)
+                    local nId, nMsg = data:match("(%d+)|(.+)")
+                    if nId and nMsg then
+                        nId = tonumber(nId)
+                        if nId > (mainIni.ayarlar.last_notif_id or 0) then
+                            aktifBildirimMetin = nMsg
+                            aktifBildirim = true
+                            aktifBildirimZaman = os.clock() + 15.0
+                            mainIni.ayarlar.last_notif_id = nId
+                            inicfg.save(mainIni, iniFile)
+                            addOneOffSound(0,0,0, 1149)
+                        end
+                    end
+                end
+            end
+        end)
+    end)
+end
 
 fontFiles = {
-    {"Arial (Varsayilan)", "arial.ttf"}, {"Tahoma", "tahoma.ttf"}, {"Verdana", "verdana.ttf"},
-    {"Trebuchet MS", "trebuc.ttf"}, {"Comic Sans MS", "comic.ttf"}, {"Courier New", "cour.ttf"},
-    {"Impact", "impact.ttf"}, {"Times New Roman", "times.ttf"}
+    {"Arial (Kalin)", "arialbd.ttf"}, {"Tahoma (Kalin)", "tahomabd.ttf"}, {"Verdana (Kalin)", "verdanab.ttf"},
+    {"Trebuchet MS (Kalin)", "trebucbd.ttf"}, {"Comic Sans MS (Kalin)", "comicbd.ttf"}, {"Courier New (Kalin)", "courbd.ttf"},
+    {"Impact", "impact.ttf"}, {"Times New Roman (Kalin)", "timesbd.ttf"}
 }
 
 mevcutFontIsimleri = {}
@@ -80,14 +106,14 @@ fontComboCount = 0
 fontComboItems = nil
 fontNamesPointers = {} 
 
-glyph_ranges = imgui.new.ImWchar[7](0x0020, 0x00FF, 0x0100, 0x017F, 0x0400, 0x04FF, 0)
+-- Kutu Çizim Sembolleri Unicode Aralığı (0x2500 - 0x257F) ve Maça/Sinek (0x2600 - 0x26FF)
+glyph_ranges = imgui.new.ImWchar[9](0x0020, 0x00FF, 0x0100, 0x017F, 0x0400, 0x04FF, 0x2500, 0x26FF, 0)
 bgTexture = nil
 
--- ANİMASYON DURUMLARI (BOOT & FADE)
 local isMenuOpen = false
-local animState = 0 -- 0: Kapali, 1: Aciliyor, 2: Acik, 3: Kapaniyor
+local animState = 0 
 local animProgress = 0.0
-local bootState = 0 -- 0: Hic acilmadi, 1: Yukleniyor, 2: Jakuzi, 3: Tamamlandi
+local bootState = 0 
 local bootStartTime = 0
 
 imgui.OnInitialize(function()
@@ -97,7 +123,7 @@ imgui.OnInitialize(function()
         local f = io.open(path, "r")
         if f then
             f:close()
-            local ptr = imgui.GetIO().Fonts:AddFontFromFileTTF(path, 16.0, config, glyph_ranges)
+            local ptr = imgui.GetIO().Fonts:AddFontFromFileTTF(path, 19.0, config, glyph_ranges)
             table.insert(mevcutFontIsimleri, data[1])
             table.insert(mevcutFontPointers, ptr)
         end
@@ -124,12 +150,14 @@ iniFile = "SAMP_OzelPanel.ini"
 animDosya = getWorkingDirectory() .. "\\ModernHUB_Animasyonlar.txt"
 
 mainIni = inicfg.load({
-    isimler = {}, komutlar = {}, rp_isimler = {}, rp_komutlar = {}, radar = {}, oto_mesajlar = {},
+    isimler = {}, komutlar = {}, rp_isimler = {}, rp_komutlar = {}, radar = {}, oto_mesajlar = {}, piyasa = {},
     ayarlar = { 
         kisayol_v2 = 113, mouse_kisayol_v2 = 4, secili_font = 0, chatlog_count = 1,
-        tema_r = 0.20, tema_g = 0.55, tema_b = 0.95, yuvarlaklik = 8.0,
-        mouse_tip = 1, ses_ve_efekt = true,
-        rgb_border = false, anim_arkaplan = 1, kamera_sabitle = false
+        tema_r = 0.75, tema_g = 0.55, tema_b = 0.35, yuvarlaklik = 12.0,
+        mouse_tip = 1, ses_ve_efekt = true, rgb_border = false, anim_arkaplan = 0, kamera_sabitle = false,
+        cruise_kisayol = 67, dinamik_hud = false, hitmarker_aktif = false,
+        ozel_scoreboard = false, ozel_nametag = false, sinematik_kisayol = 122,
+        dinamik_hud_sabit = false, scoreboard_kisayol = 121, last_notif_id = 0
     },
     afk = { aktif = false, tetikleyici = "Kullanici", mesaj = "Su an klavye basinda degilim, daha sonra donus yapacagim." },
     rol_filtre = { aksan_aktif = false, aksan_metin = "[Ispanyolca] ", telsiz_aktif = false },
@@ -148,6 +176,52 @@ function formatNumber(n)
     local left,num,right = string.match(tostring(n),'^([^%d]*%d)(%d*)(.-)$')
     return left..(num:reverse():gsub('(%d%d%d)','%1.'):reverse())..right
 end
+
+seciliCruiseKisayol = imgui.new.int(mainIni.ayarlar.cruise_kisayol or vkeys.VK_C)
+bekleCruiseTusu = false
+isCruiseActive = false
+cruiseSpeed = 0.0
+
+piyasaFiltreleri = {}
+piyasaLoglari = {}
+inputPiyasa = imgui.new.char[128]("")
+marketNotifDurum = false
+marketNotifMetin = ""
+marketNotifSure = 0.0
+
+meslekAktif = false
+meslekBaslangic = 0
+meslekBaslangicPara = 0
+meslekKazanilan = 0
+meslekTur = 0
+meslekSonPara = 0
+meslekHedefPara = imgui.new.int(50000)
+
+dinamikHudAktif = imgui.new.bool(mainIni.ayarlar.dinamik_hud or false)
+dinamikHudSabit = imgui.new.bool(mainIni.ayarlar.dinamik_hud_sabit or false)
+
+hitmarkerAktif = imgui.new.bool(mainIni.ayarlar.hitmarker_aktif or false)
+hitmarkerTime = 0.0
+
+ozelScoreboardAktif = imgui.new.bool(mainIni.ayarlar.ozel_scoreboard or false)
+seciliScoreboardKisayol = imgui.new.int(mainIni.ayarlar.scoreboard_kisayol or vkeys.VK_F10)
+bekleScoreboardTusu = false
+scoreboardAcik = false
+aramaScoreboard = imgui.new.char[128]("")
+
+ozelNametagAktif = imgui.new.bool(mainIni.ayarlar.ozel_nametag or false)
+seciliSinematikKisayol = imgui.new.int(mainIni.ayarlar.sinematik_kisayol or vkeys.VK_F11)
+sinematikAktif = false
+origSensX, origSensY = 0.0025, 0.0025
+bekleSinematikTusu = false
+
+local ssListesi = {}
+local ssComboItems = ffi.new('const char*[1]')
+local ssPointers = {}
+local seciliSSIndex = imgui.new.int(-1)
+local yuklenenSSTexture = nil
+local yuklenenSSIsim = ""
+local aramaGaleri = imgui.new.char[128]("")
 
 patched_time = nil
 g_SabitZaman = nil
@@ -182,6 +256,14 @@ function getRiskCiftZar(score)
     return (bust_count / 36.0) * 100.0
 end
 
+addEventHandler("onWindowMessage", function(msg, wparam, lparam)
+    if msg == 0x0100 or msg == 0x0101 then
+        if wparam == vkeys.VK_TAB and ozelScoreboardAktif[0] and not renderWindow[0] and not sampIsChatInputActive() and not sampIsDialogActive() then
+            return false 
+        end
+    end
+end)
+
 mouseTipleriListesi = {"Varsayilan (SAMP)", "Neon Ok", "Minimal Nokta", "Crosshair"}
 mouseTipItems = ffi.new('const char*[?]', #mouseTipleriListesi)
 mouseTipPointers = {}
@@ -209,7 +291,7 @@ end
 
 function BilgiKutusu(metin)
     imgui.SameLine()
-    imgui.TextColored(imgui.ImVec4(0.5, 0.8, 0.9, 1.0), "(?)")
+    imgui.TextColored(imgui.ImVec4(0.5, 0.5, 0.5, 1.0), "(?)")
     if imgui.IsItemHovered() then
         imgui.BeginTooltip()
         imgui.PushTextWrapPos(imgui.GetFontSize() * 35.0)
@@ -294,8 +376,8 @@ otoSaniye = imgui.new.int(0)
 seciliFontIndex = imgui.new.int(mainIni.ayarlar.secili_font or 0)
 seciliKisayol = imgui.new.int(mainIni.ayarlar.kisayol_v2 or vkeys.VK_F2)
 seciliMouseKisayol = imgui.new.int(mainIni.ayarlar.mouse_kisayol_v2 or vkeys.VK_MBUTTON)
-temaRengi = imgui.new.float[3](mainIni.ayarlar.tema_r or 0.20, mainIni.ayarlar.tema_g or 0.55, mainIni.ayarlar.tema_b or 0.95)
-temaYuvarlaklik = imgui.new.float(mainIni.ayarlar.yuvarlaklik or 8.0)
+temaRengi = imgui.new.float[3](mainIni.ayarlar.tema_r or 0.75, mainIni.ayarlar.tema_g or 0.55, mainIni.ayarlar.tema_b or 0.35)
+temaYuvarlaklik = imgui.new.float(mainIni.ayarlar.yuvarlaklik or 12.0)
 mouseTip = imgui.new.int(mainIni.ayarlar.mouse_tip or 1)
 sesVeEfektAktif = imgui.new.bool(mainIni.ayarlar.ses_ve_efekt)
 rgbBorder = imgui.new.bool(mainIni.ayarlar.rgb_border or false)
@@ -308,7 +390,6 @@ bindGecikmesi = 0
 afkAktif = imgui.new.bool(mainIni.afk.aktif or false)
 afkTetikleyici = imgui.new.char[128](mainIni.afk.tetikleyici or "Kullanici")
 afkMesaj = imgui.new.char[256](mainIni.afk.mesaj or "Su an klavye basinda degilim, daha sonra donus yapacagim.")
-
 aksanAktif = imgui.new.bool(mainIni.rol_filtre.aksan_aktif or false)
 aksanMetin = imgui.new.char[128](mainIni.rol_filtre.aksan_metin or "[Ispanyolca] ")
 telsizAktif = imgui.new.bool(mainIni.rol_filtre.telsiz_aktif or false)
@@ -319,21 +400,62 @@ otoMotorAktif = imgui.new.bool(mainIni.oto_arac.motor or false)
 seciliHava = imgui.new.int(0)
 seciliSaat = imgui.new.int(12)
 
-calcMiktar1 = imgui.new.int(0)
-calcMiktar2 = imgui.new.int(0)
+calcMiktar1, calcMiktar2 = imgui.new.int(0), imgui.new.int(0)
 calcSonuc = 0
 
 ajandaDosya = getWorkingDirectory() .. "\\SAMP_Ajanda.txt"
 ajandaBuffer = imgui.new.char[16384]("")
 
 duzenleRpIndex, duzenleOzelIndex, duzenleAnimIndex = 0, 0, 0
-sidebarMenuler = {
-    "Ana Sayfa", "Karakter Profili", "Oturum Istatistikleri", "Canli Sohbet", 
-    "Oto-Mesaj Botu", "Arac Kontrolleri", "RP Asistani", "Animasyonlar", 
-    "Not Defteri", "Hesap Kitap", "Atmosfer Ayari", "Blackjack (Zar)", 
-    "Ozel Kisayollar", "Moduller", "Tema ve Gorunum"
-}
 seciliSekme = imgui.new.int(1)
+
+-- =========================================================================
+-- KaUI - KATEGORILI MENU YAPISI
+-- =========================================================================
+local menuKategoriler = {
+    {
+        isim = "WORKSPACE",
+        acik = true,
+        ogeler = {
+            {id = 1, isim = "Genel Bakis"},
+            {id = 2, isim = "Karakter Profili"},
+            {id = 3, isim = "Oturum Istatistikleri"},
+            {id = 4, isim = "Canli Sohbet"},
+        }
+    },
+    {
+        isim = "GAME & ROLEPLAY",
+        acik = true,
+        ogeler = {
+            {id = 6, isim = "Arac Kontrolleri"},
+            {id = 7, isim = "RP Asistani"},
+            {id = 8, isim = "Animasyonlar"},
+            {id = 17, isim = "Meslek Asistani"},
+        }
+    },
+    {
+        isim = "TOOLS & UTILITIES",
+        acik = true,
+        ogeler = {
+            {id = 5, isim = "Oto-Mesaj Botu"},
+            {id = 9, isim = "Not Defteri"},
+            {id = 10, isim = "Hesap Makinesi"},
+            {id = 12, isim = "Zar & Blackjack"},
+            {id = 16, isim = "Piyasa Takipcisi"},
+            {id = 18, isim = "Ekran Goruntuleri"},
+        }
+    },
+    {
+        isim = "PERSONALIZE",
+        acik = true,
+        ogeler = {
+            {id = 11, isim = "Atmosfer & Zaman"},
+            {id = 13, isim = "Ozel Kisayollar"},
+            {id = 14, isim = "Ek Moduller"},
+            {id = 15, isim = "Tema ve Gorunum"},
+        }
+    }
+}
 
 particles = {}
 bgParticles = {}
@@ -349,48 +471,70 @@ end
 function AnimButton(isim, beklemeBoyutu)
     local btnBoyut = beklemeBoyutu or imgui.ImVec2(0, 0)
     local clicked = imgui.Button(isim, btnBoyut)
-    if imgui.IsItemHovered() then
-        local dl = imgui.GetWindowDrawList()
-        local min = imgui.GetItemRectMin()
-        local max = imgui.GetItemRectMax()
-        min.x = min.x - 2; min.y = min.y - 2
-        max.x = max.x + 2; max.y = max.y + 2
-        
-        local r, g, b = temaRengi[0], temaRengi[1], temaRengi[2]
-        if rgbBorder[0] then
-            local time = os.clock() * 2.0
-            r = (math.sin(time) + 1.0) * 0.5; g = (math.sin(time + 2.0) + 1.0) * 0.5; b = (math.sin(time + 4.0) + 1.0) * 0.5
-        end
-        local c = imgui.GetColorU32Vec4(imgui.ImVec4(r, g, b, 0.6))
-        dl:AddRect(min, max, c, temaYuvarlaklik[0], 0, 2.0)
+    if clicked and sesVeEfektAktif[0] then addOneOffSound(0, 0, 0, 1083) end
+    return clicked
+end
+
+-- =========================================================================
+-- KaUI - DISCORD TARZI PILL TASARIMLI NAVIGASYON BUTONU (UTF-8 BAYT KODLARI)
+-- =========================================================================
+function ModernNavButton(id, prefix, isim, isSelected, btnBoyut)
+    local p = imgui.GetCursorScreenPos()
+    local w = btnBoyut.x > 0 and btnBoyut.x or imgui.GetWindowContentRegionWidth()
+    local h = btnBoyut.y > 0 and btnBoyut.y or 40.0
+    
+    local clicked = imgui.InvisibleButton("btn_nav_"..id, imgui.ImVec2(w, h))
+    local hovered = imgui.IsItemHovered()
+    
+    local dl = imgui.GetWindowDrawList()
+    
+    local bgActive = imgui.GetColorU32Vec4(imgui.ImVec4(0.35, 0.35, 0.35, 0.50))
+    local bgHover = imgui.GetColorU32Vec4(imgui.ImVec4(0.20, 0.20, 0.20, 0.50))
+    
+    if isSelected then
+        dl:AddRectFilled(p, imgui.ImVec2(p.x + w, p.y + h), bgActive, 6.0)
+    elseif hovered then
+        dl:AddRectFilled(p, imgui.ImVec2(p.x + w, p.y + h), bgHover, 6.0)
     end
+    
+    local textCol = isSelected and imgui.GetColorU32Vec4(imgui.ImVec4(1.0, 1.0, 1.0, 1.0)) or imgui.GetColorU32Vec4(imgui.ImVec4(0.85, 0.85, 0.85, 1.0))
+    
+    -- Format: ╠ ═ İsim / ╚ ═ İsim 
+    local fullText = string.format("%s  %s", prefix, isim)
+    local textPos = imgui.ImVec2(p.x + 12, p.y + (h - imgui.CalcTextSize(fullText).y) / 2)
+    dl:AddText(textPos, textCol, fullText)
+    
     if clicked and sesVeEfektAktif[0] then addOneOffSound(0, 0, 0, 1083) end
     return clicked
 end
 
 function updateAracCombo()
+    -- OnInitialize'dan once render hatasi vermemesi icin guvenli array kurulumu
+    comboAracCount = 1
+    comboAracPointers = { imgui.new.char[256]("Cevrede arac bulunamadi (Yenile)") }
+    comboAracItems = ffi.new('const char*[1]')
+    comboAracItems[0] = comboAracPointers[1]
+    
     local list = {}
-    if #aktifAraclar == 0 then 
-        table.insert(list, "Cevrede arac bulunamadi (Yenile)")
-    else
-        for i, v in ipairs(aktifAraclar) do 
-            table.insert(list, string.format("%s (ID: %d) - Plaka: %s", v.isim, v.id, v.plaka)) 
-        end
-    end
-    
+    if #aktifAraclar == 0 then table.insert(list, "Cevrede arac bulunamadi (Yenile)")
+    else for i, v in ipairs(aktifAraclar) do table.insert(list, string.format("%s (ID: %d) - Plaka: %s", v.isim, v.id, v.plaka)) end end
     comboAracCount = #list
-    if comboAracCount > 0 then
-        comboAracItems = ffi.new('const char*[?]', comboAracCount)
-    else
-        comboAracItems = ffi.new('const char*[1]')
-    end
-    
+    if comboAracCount > 0 then comboAracItems = ffi.new('const char*[?]', comboAracCount)
+    else comboAracItems = ffi.new('const char*[1]') end
     comboAracPointers = {} 
-    for i, v in ipairs(list) do
-        comboAracPointers[i] = imgui.new.char[256](v)
-        comboAracItems[i - 1] = comboAracPointers[i]
-    end
+    for i, v in ipairs(list) do comboAracPointers[i] = imgui.new.char[256](v); comboAracItems[i - 1] = comboAracPointers[i] end
     seciliAracIndex[0] = 0 
+end
+
+function tazeSSListesi()
+    ssListesi = {}
+    if lfs_yuklu then
+        local yol = os.getenv("USERPROFILE") .. "\\Documents\\GTA San Andreas User Files\\SAMP\\screens\\"
+        for file in lfs.dir(yol) do
+            if file:match("%.png$") or file:match("%.jpg$") then table.insert(ssListesi, file) end
+        end
+        table.sort(ssListesi, function(a,b) return a>b end)
+    end
 end
 
 function ajandaYukle()
@@ -404,88 +548,71 @@ function ajandaKaydet()
 end
 
 function animasyonlariYukle()
-    local f = io.open(animDosya, "r")
-    animButonlar = {}
+    local f = io.open(animDosya, "r"); animButonlar = {}
     if f then
         for line in f:lines() do
             local isim, komut = line:match("([^|]+)|([^|]+)")
-            if isim and komut then
-                table.insert(animButonlar, {isim = isim, komut = komut})
-            end
+            if isim and komut then table.insert(animButonlar, {isim = isim, komut = komut}) end
         end
         f:close()
     else
         local newF = io.open(animDosya, "w")
-        if newF then
-            newF:write("Otur|/otur 1\nEl Salla|/anim salla\n")
-            newF:close()
-            animButonlar = {{isim="Otur", komut="/otur 1"}, {isim="El Salla", komut="/anim salla"}}
-        end
+        if newF then newF:write("Otur|/otur 1\nEl Salla|/anim salla\n"); newF:close(); animButonlar = {{isim="Otur", komut="/otur 1"}, {isim="El Salla", komut="/anim salla"}} end
     end
 end
 
 function animasyonlariKaydet()
     local f = io.open(animDosya, "w")
-    if f then
-        for i, v in ipairs(animButonlar) do
-            f:write(v.isim .. "|" .. v.komut .. "\n")
-        end
-        f:close()
-    end
+    if f then for i, v in ipairs(animButonlar) do f:write(v.isim .. "|" .. v.komut .. "\n") end f:close() end
 end
 
 function ayarlariYukle()
-    ozelButonlar, rpButonlar, radarKelimeler, otoMesajlar = {}, {}, {}, {}
+    ozelButonlar, rpButonlar, radarKelimeler, otoMesajlar, piyasaFiltreleri = {}, {}, {}, {}, {}
     if mainIni.isimler then for k, v in pairs(mainIni.isimler) do if mainIni.komutlar[k] then table.insert(ozelButonlar, {isim = v, komut = mainIni.komutlar[k]}) end end end
     if mainIni.rp_isimler then for k, v in pairs(mainIni.rp_isimler) do if mainIni.rp_komutlar[k] then table.insert(rpButonlar, {isim = v, komut = mainIni.rp_komutlar[k]}) end end end
     if mainIni.radar then for k, v in pairs(mainIni.radar) do table.insert(radarKelimeler, v) end end
-    
+    if mainIni.piyasa then for k, v in pairs(mainIni.piyasa) do table.insert(piyasaFiltreleri, v) end end
     if mainIni.oto_mesajlar then
         for k, v in pairs(mainIni.oto_mesajlar) do
             local parts = {}
             for p in string.gmatch(v, "([^|]+)") do table.insert(parts, p) end
-            if #parts >= 6 then
-                table.insert(otoMesajlar, {
-                    isim = parts[1], komut = parts[2], gun = tonumber(parts[3]), saat = tonumber(parts[4]),
-                    dakika = tonumber(parts[5]), saniye = tonumber(parts[6]), aktif = false, sonraki_zaman = 0
-                })
-            end
+            if #parts >= 6 then table.insert(otoMesajlar, {isim = parts[1], komut = parts[2], gun = tonumber(parts[3]), saat = tonumber(parts[4]), dakika = tonumber(parts[5]), saniye = tonumber(parts[6]), aktif = false, sonraki_zaman = 0}) end
         end
     end
-    
-    animasyonlariYukle()
-    updateAracCombo(); ajandaYukle()
+    animasyonlariYukle(); updateAracCombo(); ajandaYukle(); tazeSSListesi()
 end
 
 function ayarlariKaydet()
-    local y = {isimler = {}, komutlar = {}, rp_isimler = {}, rp_komutlar = {}, radar = {}, oto_mesajlar = {}, ayarlar = {}, afk = {}, rol_filtre = {}, oto_arac = {}}
+    local y = {isimler = {}, komutlar = {}, rp_isimler = {}, rp_komutlar = {}, radar = {}, oto_mesajlar = {}, piyasa = {}, ayarlar = {}, afk = {}, rol_filtre = {}, oto_arac = {}}
     for i, val in ipairs(ozelButonlar) do y.isimler[tostring(i)] = val.isim; y.komutlar[tostring(i)] = val.komut end
     for i, val in ipairs(rpButonlar) do y.rp_isimler[tostring(i)] = val.isim; y.rp_komutlar[tostring(i)] = val.komut end
     for i, val in ipairs(radarKelimeler) do y.radar[tostring(i)] = val end
+    for i, val in ipairs(piyasaFiltreleri) do y.piyasa[tostring(i)] = val end
     for i, val in ipairs(otoMesajlar) do y.oto_mesajlar[tostring(i)] = string.format("%s|%s|%d|%d|%d|%d", val.isim, val.komut, val.gun, val.saat, val.dakika, val.saniye) end
     
     y.ayarlar.kisayol_v2 = seciliKisayol[0]; y.ayarlar.mouse_kisayol_v2 = seciliMouseKisayol[0]; y.ayarlar.secili_font = seciliFontIndex[0]
     y.ayarlar.tema_r = temaRengi[0]; y.ayarlar.tema_g = temaRengi[1]; y.ayarlar.tema_b = temaRengi[2]
     y.ayarlar.yuvarlaklik = temaYuvarlaklik[0]; y.ayarlar.mouse_tip = mouseTip[0]; y.ayarlar.ses_ve_efekt = sesVeEfektAktif[0]
     y.ayarlar.rgb_border = rgbBorder[0]; y.ayarlar.anim_arkaplan = animArkaplan[0]; y.ayarlar.kamera_sabitle = kameraSabitleAktif[0]
-    y.ayarlar.chatlog_count = chatLogCount[0]
+    y.ayarlar.chatlog_count = chatLogCount[0]; y.ayarlar.cruise_kisayol = seciliCruiseKisayol[0]
+    y.ayarlar.dinamik_hud = dinamikHudAktif[0]; y.ayarlar.hitmarker_aktif = hitmarkerAktif[0]
+    y.ayarlar.dinamik_hud_sabit = dinamikHudSabit[0];
+    y.ayarlar.ozel_scoreboard = ozelScoreboardAktif[0]; y.ayarlar.ozel_nametag = ozelNametagAktif[0]
+    y.ayarlar.sinematik_kisayol = seciliSinematikKisayol[0]; y.ayarlar.scoreboard_kisayol = seciliScoreboardKisayol[0]
+    y.ayarlar.last_notif_id = mainIni.ayarlar.last_notif_id or 0
     
     y.afk.aktif = afkAktif[0]; y.afk.tetikleyici = ffi.string(afkTetikleyici); y.afk.mesaj = ffi.string(afkMesaj)
     y.rol_filtre.aksan_aktif = aksanAktif[0]; y.rol_filtre.aksan_metin = ffi.string(aksanMetin); y.rol_filtre.telsiz_aktif = telsizAktif[0]
     y.oto_arac.kemer = otoKemerAktif[0]; y.oto_arac.motor = otoMotorAktif[0]
     
-    inicfg.save(y, iniFile); mainIni = inicfg.load(nil, iniFile)
-    animasyonlariKaydet()
+    inicfg.save(y, iniFile); mainIni = inicfg.load(nil, iniFile); animasyonlariKaydet()
 end
 
 if sampev_yuklu then
     function sampev.onSendChat(message)
-        sesLastActive = os.clock()
-        sesMsgCount = sesMsgCount + 1
+        sesLastActive = os.clock(); sesMsgCount = sesMsgCount + 1
         local yollanacak = message
-        
         if telsizAktif[0] and yollanacak:sub(1,1) ~= "/" then yollanacak = "/t " .. yollanacak end
-        
         if aksanAktif[0] then
             local prefix = u8_decode(ffi.string(aksanMetin))
             if prefix ~= "" and yollanacak:sub(1,3) ~= "/b " and yollanacak:sub(1,4) ~= "/pm " then
@@ -497,15 +624,24 @@ if sampev_yuklu then
         end
         if yollanacak ~= message then return { yollanacak } end
     end
-    
+
     function sampev.onSendWeaponsUpdate()
-        if isCharShooting(PLAYER_PED) then sesShotsFired = sesShotsFired + 1 end
+        if sampIsLocalPlayerSpawned() and doesCharExist(PLAYER_PED) then
+            local res, id = sampGetPlayerIdByCharHandle(PLAYER_PED)
+            if res and isCharShooting(PLAYER_PED) then sesShotsFired = sesShotsFired + 1 end
+        end
+    end
+    
+    function sampev.onSendGiveDamage(playerId, damage, weapon, bodypart)
+        if hitmarkerAktif[0] then
+            hitmarkerTime = os.clock() + 0.3
+            addOneOffSound(0, 0, 0, 1131) 
+        end
     end
 
     function sampev.onSendCommand(cmd)
         sesLastActive = os.clock()
         if cmd == "/arac liste" then aktifAraclar = {}; updateAracCombo() end
-        
         local colorMatch, msgMatch = cmd:match("^/fchat (%x%x%x%x%x%x) (.+)")
         if colorMatch and msgMatch then
             sampAddChatMessage(msgMatch, tonumber("0xFF"..colorMatch, 16))
@@ -515,6 +651,19 @@ if sampev_yuklu then
     
     function sampev.onServerMessage(color, text)
         local temizMetin = text:gsub("{%x%x%x%x%x%x}", "")
+        local lower_text = temizMetin:lower()
+        
+        for _, kelime in ipairs(piyasaFiltreleri) do
+            if kelime ~= "" and lower_text:find(kelime:lower()) then
+                table.insert(piyasaLoglari, 1, {zaman = os.date("%H:%M:%S"), metin = temizMetin, kelime = kelime})
+                if #piyasaLoglari > 100 then table.remove(piyasaLoglari) end
+                marketNotifMetin = temizMetin
+                marketNotifSure = os.clock() + 5.0
+                marketNotifDurum = true
+                addOneOffSound(0,0,0, 1085)
+                break
+            end
+        end
         
         local noTimeText = temizMetin:gsub("^%[%d%d:%d%d:%d%d%]%s*", "")
         local lowerNoTime = noTimeText:lower()
@@ -523,7 +672,6 @@ if sampev_yuklu then
         local isMeDo = temizMetin:match("^%* ")
         local isPlayerChat = temizMetin:match("^[A-Z]%a+_[A-Z]%a+:") or temizMetin:match("^[A-Z]%a+ [A-Z]%a+:") or temizMetin:match("^[A-Z]%w+:")
         local isPM = temizMetin:find("%(%( << ") or temizMetin:find("%(%( >> ") or temizMetin:find("%[PM%]") or temizMetin:find("PM %-")
-        
         if isMeDo or isPlayerChat or isPM or isWhisper then
             table.insert(chatLog, { txt = u8(temizMetin), raw = text:gsub("{%x%x%x%x%x%x}", "") })
             if #chatLog > 200 then table.remove(chatLog, 1) end 
@@ -544,7 +692,6 @@ if sampev_yuklu then
         
         local zTek, pNameTek = temizMetin:match("%* Tek zar atti ve (%d+) geldi%. %(%(%s*(.-)%s*%)%)")
         if not zTek then zTek, pNameTek = temizMetin:match("%* Zar atti ve (%d+) geldi%. %(%(%s*(.-)%s*%)%)") end
-        
         if zTek and pNameTek then
             if not bjData[pNameTek] then table.insert(bjPlayers, pNameTek); bjData[pNameTek] = { toplam = 0, tekli = 0, ciftli = 0 } end
             bjData[pNameTek].toplam = bjData[pNameTek].toplam + tonumber(zTek)
@@ -592,17 +739,18 @@ if sampev_yuklu then
         end
         
         local kendiMesaji = false
-        local res, myId = sampGetPlayerIdByCharHandle(PLAYER_PED)
-        if res then
-            local myName = sampGetPlayerNickname(myId)
-            if myName then
-                local myNameSpaced = myName:gsub("_", " ")
-                if temizMetin:find("^%* " .. myNameSpaced) or temizMetin:find("^" .. myNameSpaced .. ":") then kendiMesaji = true end
+        if sampIsLocalPlayerSpawned() and doesCharExist(PLAYER_PED) then
+            local res, myId = sampGetPlayerIdByCharHandle(PLAYER_PED)
+            if res then
+                local myName = sampGetPlayerNickname(myId)
+                if myName then
+                    local myNameSpaced = myName:gsub("_", " ")
+                    if temizMetin:find("^%* " .. myNameSpaced) or temizMetin:find("^" .. myNameSpaced .. ":") then kendiMesaji = true end
+                end
             end
         end
         
         if not kendiMesaji and not temizMetin:find("%[Radar%]") then
-            local lower_text = temizMetin:lower()
             for _, kelime in ipairs(radarKelimeler) do
                 if kelime ~= "" and lower_text:find(kelime:lower()) then
                     addOneOffSound(0, 0, 0, 1057)
@@ -622,328 +770,559 @@ if sampev_yuklu then
     end
 end
 
+-- =========================================================================
+-- KaUI - BIREBIR TASARIM MOTORU
+-- =========================================================================
 function ModernTemaUygula()
     local style = imgui.GetStyle()
     local colors = style.Colors
     local clr = imgui.Col
     local ImVec4 = imgui.ImVec4
-    
-    local r, g, b = temaRengi[0], temaRengi[1], temaRengi[2]
-    
-    if rgbBorder[0] then
-        local time = os.clock() * 2.0
-        r = (math.sin(time) + 1.0) * 0.5
-        g = (math.sin(time + 2.0) + 1.0) * 0.5
-        b = (math.sin(time + 4.0) + 1.0) * 0.5
-        style.WindowBorderSize = 2.0 
-    else
-        style.WindowBorderSize = 1.0
-    end
 
-    local rnd = temaYuvarlaklik[0]
-    style.WindowRounding, style.PopupRounding, style.ChildRounding, style.TabRounding = rnd, rnd, rnd, rnd
-    style.FrameRounding = rnd / 1.5
-    style.WindowPadding = imgui.ImVec2(15, 15)
-    style.ItemSpacing = imgui.ImVec2(10, 8)
-    style.ScrollbarRounding = rnd
-    style.ScrollbarSize = 12.0
+    -- Arkaplan boslugu sifirlandi (Resim cerceveye tamamen oturur)
+    style.WindowPadding     = imgui.ImVec2(0, 0)
+    style.FramePadding      = imgui.ImVec2(10, 8)
+    style.ItemSpacing       = imgui.ImVec2(12, 10)
+    style.WindowRounding    = 12.0
+    style.ChildRounding     = 8.0
+    style.FrameRounding     = 6.0
+    style.ScrollbarRounding = 12.0
+    style.TabRounding       = 6.0
+    style.WindowBorderSize  = 1.5 
+    
+    style.ChildBorderSize   = 0.0
+    colors[clr.ChildBg]     = ImVec4(0.00, 0.00, 0.00, 0.00) 
+    style.FrameBorderSize   = 0.0
 
+    local bgDark = ImVec4(0.18, 0.18, 0.18, 1.00)
     if animArkaplan[0] ~= 0 or bgTexture then
-        colors[clr.WindowBg] = ImVec4(0.06, 0.06, 0.08, 0.55) 
+        colors[clr.WindowBg] = ImVec4(0.10, 0.10, 0.10, 0.60) 
     else
-        colors[clr.WindowBg] = ImVec4(0.12, 0.12, 0.14, 0.96)
+        colors[clr.WindowBg] = bgDark
     end
+
+    colors[clr.PopupBg]              = ImVec4(0.15, 0.15, 0.15, 0.98)
+
+    local tR, tG, tB = temaRengi[0], temaRengi[1], temaRengi[2]
+    local accentColor = ImVec4(tR, tG, tB, 0.85)
+    local accentHover = ImVec4(tR, tG, tB, 0.95)
+    local accentActive = ImVec4(tR, tG, tB, 1.00)
+
+    colors[clr.Border]               = ImVec4(tR, tG, tB, 0.65)
+    colors[clr.BorderShadow]         = ImVec4(0.00, 0.00, 0.00, 0.00)
+
+    colors[clr.FrameBg]              = ImVec4(0.12, 0.12, 0.12, 0.80)
+    colors[clr.FrameBgHovered]       = ImVec4(0.25, 0.25, 0.25, 0.90)
+    colors[clr.FrameBgActive]        = ImVec4(0.30, 0.30, 0.30, 1.00)
+
+    colors[clr.CheckMark]            = accentHover
+    colors[clr.SliderGrab]           = accentColor
+    colors[clr.SliderGrabActive]     = accentActive
+
+    colors[clr.Button]               = ImVec4(0.30, 0.30, 0.30, 0.85)
+    colors[clr.ButtonHovered]        = ImVec4(tR, tG, tB, 0.75)
+    colors[clr.ButtonActive]         = ImVec4(tR, tG, tB, 1.00)
+
+    colors[clr.Header]               = ImVec4(0.30, 0.30, 0.30, 0.85)
+    colors[clr.HeaderHovered]        = ImVec4(tR, tG, tB, 0.75)
+    colors[clr.HeaderActive]         = ImVec4(tR, tG, tB, 1.00)
     
-    colors[clr.Border] = ImVec4(r, g, b, 0.8) 
-    colors[clr.ChildBg] = ImVec4(0.15, 0.15, 0.17, 0.6)
-    colors[clr.FrameBg] = ImVec4(0.20, 0.20, 0.22, 0.85)
-    colors[clr.FrameBgHovered] = ImVec4(0.26, 0.26, 0.28, 1.00)
-    colors[clr.FrameBgActive] = ImVec4(0.32, 0.32, 0.35, 1.00)
-    
-    colors[clr.Button] = ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 0.7)
-    colors[clr.ButtonHovered] = ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 0.9)
-    colors[clr.ButtonActive] = ImVec4(temaRengi[0] - 0.1, temaRengi[1] - 0.1, temaRengi[2] - 0.1, 1.0)
-    
-    colors[clr.Text] = ImVec4(0.95, 0.95, 0.95, 1.00)
-    colors[clr.PlotHistogram] = ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0)
+    colors[clr.Separator]            = ImVec4(1.00, 1.00, 1.00, 0.10)
+    colors[clr.SeparatorHovered]     = ImVec4(1.00, 1.00, 1.00, 0.15)
+    colors[clr.SeparatorActive]      = ImVec4(1.00, 1.00, 1.00, 0.20)
+
+    colors[clr.PlotHistogram]        = accentColor
+    colors[clr.PlotHistogramHovered] = accentActive
+
+    colors[clr.Text]                 = ImVec4(1.00, 1.00, 1.00, 1.00)
+    colors[clr.TextDisabled]         = ImVec4(0.70, 0.70, 0.70, 1.00)
 end
 
 local function DrawStat(label, val, offset, colorObj)
-    local off = offset or 140
-    imgui.TextColored(imgui.ImVec4(0.6, 0.6, 0.6, 1.0), label .. ":")
+    local off = offset or 160
+    imgui.TextColored(imgui.ImVec4(0.80, 0.80, 0.80, 1.0), label .. ":")
     imgui.SameLine(off) 
-    
-    local c = colorObj or imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0)
+    local c = colorObj or imgui.ImVec4(1.0, 1.0, 1.0, 1.0)
     if not colorObj then
-        if val == "Yok" or val == "Issiz" then c = imgui.ImVec4(0.9, 0.3, 0.3, 1.0)
-        elseif val == "Mevcut" then c = imgui.ImVec4(0.3, 0.9, 0.4, 1.0) end
+        if val == "Yok" or val == "Issiz" then c = imgui.ImVec4(0.85, 0.35, 0.35, 1.0) 
+        elseif val == "Mevcut" then c = imgui.ImVec4(0.35, 0.85, 0.45, 1.0) end
     end
-    
     imgui.TextColored(c, tostring(val))
 end
 
 local newFrame = imgui.OnFrame(
-    function() return renderWindow[0] end,
+    function() return renderWindow[0] or marketNotifDurum or (dinamikHudAktif[0] and not sinematikAktif) or hitmarkerAktif[0] or (ozelScoreboardAktif[0] and scoreboardAcik and not sinematikAktif) or ozelNametagAktif[0] or sinematikAktif or aktifBildirim end,
     function(player)
-        ModernTemaUygula()
+        local sw, sh = getScreenResolution()
         
-        if bootState == 1 or bootState == 2 then 
-            player.HideCursor = true 
-        else
+        ModernTemaUygula()
+        local fontAktifState = false
+        if fontComboCount > 0 and mevcutFontPointers[seciliFontIndex[0] + 1] then
+            imgui.PushFont(mevcutFontPointers[seciliFontIndex[0] + 1])
+            fontAktifState = true
+        end
+        
+        if aktifBildirim then
+            local pKalan = (aktifBildirimZaman - os.clock()) / 15.0
+            if pKalan > 0 then
+                imgui.SetNextWindowPos(imgui.ImVec2(sw / 2, 80), imgui.Cond.Always, imgui.ImVec2(0.5, 0.0))
+                imgui.SetNextWindowSize(imgui.ImVec2(650, 100), imgui.Cond.Always)
+                imgui.PushStyleColor(imgui.Col.WindowBg, imgui.ImVec4(0.18, 0.18, 0.18, 0.98))
+                imgui.PushStyleVarFloat(imgui.StyleVar.WindowRounding, 15.0)
+                imgui.PushStyleVarFloat(imgui.StyleVar.WindowBorderSize, 1.5)
+                imgui.PushStyleColor(imgui.Col.Border, imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 0.70))
+                
+                imgui.Begin("GlobalDuyuruUI", nil, imgui.WindowFlags.NoTitleBar + imgui.WindowFlags.NoResize + imgui.WindowFlags.NoMove)
+                imgui.TextColored(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.00), "GLOBAL SISTEM DUYURUSU")
+                imgui.Dummy(imgui.ImVec2(0, 5))
+                imgui.TextWrapped(aktifBildirimMetin)
+                
+                local dl = imgui.GetWindowDrawList()
+                local p = imgui.GetCursorScreenPos()
+                local w = imgui.GetWindowContentRegionWidth()
+                dl:AddRectFilled(imgui.ImVec2(p.x, p.y + 10), imgui.ImVec2(p.x + w, p.y + 15), imgui.GetColorU32Vec4(imgui.ImVec4(0.15, 0.15, 0.15, 1.0)), 3.0)
+                dl:AddRectFilled(imgui.ImVec2(p.x, p.y + 10), imgui.ImVec2(p.x + (w * pKalan), p.y + 15), imgui.GetColorU32Vec4(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0)), 3.0)
+                
+                imgui.End()
+                imgui.PopStyleVar(2)
+                imgui.PopStyleColor(2)
+            else
+                aktifBildirim = false
+            end
+        end
+
+        if sinematikAktif then
+            local fg = imgui.GetForegroundDrawList()
+            fg:AddRectFilled(imgui.ImVec2(0, 0), imgui.ImVec2(sw, sh * 0.12), imgui.GetColorU32Vec4(imgui.ImVec4(0,0,0,1)))
+            fg:AddRectFilled(imgui.ImVec2(0, sh * 0.88), imgui.ImVec2(sw, sh), imgui.GetColorU32Vec4(imgui.ImVec4(0,0,0,1)))
+        end
+
+        local resSpwn, mySpwnId = false, 0
+        if sampIsLocalPlayerSpawned() and doesCharExist(PLAYER_PED) then
+            resSpwn, mySpwnId = sampGetPlayerIdByCharHandle(PLAYER_PED)
+        end
+
+        if ozelNametagAktif[0] and not sinematikAktif and resSpwn then
+            local cX, cY, cZ = getCharCoordinates(PLAYER_PED)
+            for _, ped in ipairs(getAllChars()) do
+                if ped ~= PLAYER_PED then
+                    local isP, pId = sampGetPlayerIdByCharHandle(ped)
+                    if isP then
+                        local resX, resY, resZ = getCharCoordinates(ped)
+                        local dist = getDistanceBetweenCoords3d(cX, cY, cZ, resX, resY, resZ)
+                        if dist < 35.0 and isLineOfSightClear(cX, cY, cZ, resX, resY, resZ, true, false, false, true, false) then
+                            if isPointOnScreen(resX, resY, resZ, 1.0) then
+                                local res2, sx, sy = convert3DCoordsToScreen(resX, resY, resZ + 1.0)
+                                if res2 and sx and sy then
+                                    local nName = sampGetPlayerNickname(pId):gsub("_", " ")
+                                    local hp = sampGetPlayerHealth(pId)
+                                    local armor = sampGetPlayerArmor(pId)
+                                    local tSize = imgui.CalcTextSize(nName .. " (" .. pId .. ")")
+                                    local fg = imgui.GetBackgroundDrawList()
+                                    
+                                    fg:AddText(imgui.ImVec2(sx - (tSize.x/2), sy), imgui.GetColorU32Vec4(imgui.ImVec4(1,1,1,1)), nName .. " (" .. pId .. ")")
+                                    
+                                    fg:AddRectFilled(imgui.ImVec2(sx - 25, sy + tSize.y + 2), imgui.ImVec2(sx + 25, sy + tSize.y + 6), imgui.GetColorU32Vec4(imgui.ImVec4(0,0,0,0.7)))
+                                    fg:AddRectFilled(imgui.ImVec2(sx - 25, sy + tSize.y + 2), imgui.ImVec2(sx - 25 + (50 * (math.min(hp, 100) / 100)), sy + tSize.y + 6), imgui.GetColorU32Vec4(imgui.ImVec4(0.3,0.9,0.3,1)))
+                                    
+                                    if armor > 0 then
+                                        fg:AddRectFilled(imgui.ImVec2(sx - 25, sy + tSize.y + 8), imgui.ImVec2(sx + 25, sy + tSize.y + 12), imgui.GetColorU32Vec4(imgui.ImVec4(0,0,0,0.7)))
+                                        fg:AddRectFilled(imgui.ImVec2(sx - 25, sy + tSize.y + 8), imgui.ImVec2(sx - 25 + (50 * (math.min(armor, 100) / 100)), sy + tSize.y + 12), imgui.GetColorU32Vec4(imgui.ImVec4(0.8,0.8,0.8,1)))
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+
+        if not sinematikAktif and resSpwn then
+            local cX, cY, cZ = getCharCoordinates(PLAYER_PED)
+            for _, ped in ipairs(getAllChars()) do
+                if ped ~= PLAYER_PED then
+                    local isP, pId = sampGetPlayerIdByCharHandle(ped)
+                    if isP then
+                        local nName = sampGetPlayerNickname(pId)
+                        if nName then
+                            nName = nName:gsub("_", " ")
+                            if favoritePlayers[nName] then
+                                local resX, resY, resZ = getCharCoordinates(ped)
+                                local dist = getDistanceBetweenCoords3d(cX, cY, cZ, resX, resY, resZ)
+                                if dist < 50.0 and isLineOfSightClear(cX, cY, cZ, resX, resY, resZ, true, false, false, true, false) then
+                                    if isPointOnScreen(resX, resY, resZ, 1.0) then
+                                        local yOffset = ozelNametagAktif[0] and 1.3 or 1.1 
+                                        local res2, sx, sy = convert3DCoordsToScreen(resX, resY, resZ + yOffset)
+                                        if res2 and sx and sy then
+                                            local foreDL = imgui.GetBackgroundDrawList()
+                                            local tSize = imgui.CalcTextSize("TAKIM")
+                                            foreDL:AddRectFilled(imgui.ImVec2(sx - (tSize.x/2) - 5, sy - 5), imgui.ImVec2(sx + (tSize.x/2) + 5, sy + tSize.y + 5), imgui.GetColorU32Vec4(imgui.ImVec4(0,0,0,0.6)), 5.0)
+                                            foreDL:AddText(imgui.ImVec2(sx - (tSize.x/2), sy), imgui.GetColorU32Vec4(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0)), "TAKIM")
+                                        end
+                                    end
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+
+        if hitmarkerAktif[0] and os.clock() < hitmarkerTime and not sinematikAktif then
+            local cx, cy = sw / 2, sh / 2
+            local alpha = (hitmarkerTime - os.clock()) / 0.3
+            local c = imgui.GetColorU32Vec4(imgui.ImVec4(1.0, 1.0, 1.0, alpha))
+            local dl = imgui.GetForegroundDrawList()
+            local size = 10
+            local th = 2.0
+            dl:AddLine(imgui.ImVec2(cx - size, cy - size), imgui.ImVec2(cx + size, cy + size), c, th)
+            dl:AddLine(imgui.ImVec2(cx - size, cy + size), imgui.ImVec2(cx + size, cy - size), c, th)
+        end
+
+        if dinamikHudAktif[0] and not sinematikAktif and resSpwn then
+            -- PushStyleVarVec2 ile çökme tamamen önlendi!
+            imgui.PushStyleVarVec2(imgui.StyleVar.WindowPadding, imgui.ImVec2(15.0, 15.0))
+            imgui.SetNextWindowBgAlpha(0.4)
+            local flags = imgui.WindowFlags.NoTitleBar + imgui.WindowFlags.AlwaysAutoResize
+            if dinamikHudSabit[0] then flags = flags + imgui.WindowFlags.NoMove end
+            
+            if imgui.Begin("Dinamik HUD", nil, flags) then
+                imgui.TextColored(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0), "Dinamik HUD")
+                imgui.Separator()
+                imgui.Text(string.format("FPS: %d", math.floor(imgui.GetIO().Framerate)))
+                imgui.Text(string.format("Ping: %d", sampGetPlayerPing(mySpwnId)))
+                imgui.Text(string.format("Saat: %s", os.date("%H:%M:%S")))
+            end
+            imgui.End()
+            imgui.PopStyleVar()
+        end
+
+        if ozelScoreboardAktif[0] and scoreboardAcik and not sinematikAktif then
+            imgui.SetNextWindowPos(imgui.ImVec2(sw/2, sh/2), imgui.Cond.Always, imgui.ImVec2(0.5, 0.5))
+            imgui.SetNextWindowSize(imgui.ImVec2(600, 500), imgui.Cond.Always)
+            imgui.PushStyleColor(imgui.Col.WindowBg, imgui.ImVec4(0.18, 0.18, 0.18, 0.98))
+            imgui.PushStyleVarFloat(imgui.StyleVar.WindowRounding, 12.0)
+            
+            imgui.Begin("##CustomScoreboard", nil, imgui.WindowFlags.NoTitleBar + imgui.WindowFlags.NoResize)
+            imgui.TextColored(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0), "Sunucu Oyuncu Listesi")
+            imgui.SameLine(400)
+            imgui.PushItemWidth(180)
+            imgui.InputText("Ara", aramaScoreboard, 128)
+            imgui.PopItemWidth()
+            imgui.Separator()
+            
+            imgui.BeginChild("scList", imgui.ImVec2(0, 0), false)
+            imgui.Columns(3, "sbCols")
+            imgui.TextColored(imgui.ImVec4(0.70, 0.70, 0.70, 1.0), "ID")
+            imgui.NextColumn()
+            imgui.TextColored(imgui.ImVec4(0.70, 0.70, 0.70, 1.0), "Oyuncu Ismi")
+            imgui.NextColumn()
+            imgui.TextColored(imgui.ImVec4(0.70, 0.70, 0.70, 1.0), "Ping")
+            imgui.NextColumn()
+            imgui.Separator()
+            
+            local fStr = ffi.string(aramaScoreboard):lower()
+            for i = 0, 1000 do
+                if sampIsPlayerConnected(i) then
+                    local name = sampGetPlayerNickname(i)
+                    if fStr == "" or name:lower():find(fStr) or tostring(i) == fStr then
+                        local ping = sampGetPlayerPing(i)
+                        imgui.Text(tostring(i))
+                        imgui.NextColumn()
+                        imgui.Text(name)
+                        imgui.NextColumn()
+                        imgui.Text(tostring(ping))
+                        imgui.NextColumn()
+                    end
+                end
+            end
+            
+            imgui.Columns(1)
+            imgui.EndChild()
+            imgui.End()
+            imgui.PopStyleColor()
+            imgui.PopStyleVar()
+        end
+
+        local isAnyMenuOpen = renderWindow[0] or (ozelScoreboardAktif[0] and scoreboardAcik and not sinematikAktif)
+        if isAnyMenuOpen then
             player.HideCursor = not mouseAktif
+            if ozelScoreboardAktif[0] and scoreboardAcik and not renderWindow[0] then
+                player.HideCursor = false
+            end
+        else
+            player.HideCursor = true
+        end
+
+        if marketNotifDurum and not sinematikAktif then
+            local currentClock = os.clock()
+            if currentClock < marketNotifSure then
+                local pKalan = (marketNotifSure - currentClock) / 5.0
+                
+                imgui.SetNextWindowPos(imgui.ImVec2(sw / 2, sh - 100), imgui.Cond.Always, imgui.ImVec2(0.5, 1.0))
+                imgui.SetNextWindowSize(imgui.ImVec2(600, 90), imgui.Cond.Always)
+                imgui.PushStyleColor(imgui.Col.WindowBg, imgui.ImVec4(0.18, 0.18, 0.18, 0.95))
+                imgui.PushStyleVarFloat(imgui.StyleVar.WindowRounding, 12.0)
+                imgui.PushStyleVarFloat(imgui.StyleVar.WindowBorderSize, 1.5)
+                imgui.PushStyleColor(imgui.Col.Border, imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 0.8))
+                
+                imgui.Begin("MarketNotifUI", nil, imgui.WindowFlags.NoTitleBar + imgui.WindowFlags.NoResize + imgui.WindowFlags.NoMove + imgui.WindowFlags.NoSavedSettings)
+                imgui.TextColored(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0), "Piyasa Ilan Radari Tetiklendi!")
+                imgui.Dummy(imgui.ImVec2(0, 2))
+                imgui.TextWrapped(marketNotifMetin)
+                
+                local dl = imgui.GetWindowDrawList()
+                local p = imgui.GetCursorScreenPos()
+                local w = imgui.GetWindowContentRegionWidth()
+                dl:AddRectFilled(imgui.ImVec2(p.x, p.y + 10), imgui.ImVec2(p.x + w, p.y + 15), imgui.GetColorU32Vec4(imgui.ImVec4(0.15, 0.15, 0.15, 0.6)), 3.0)
+                dl:AddRectFilled(imgui.ImVec2(p.x, p.y + 10), imgui.ImVec2(p.x + (w * pKalan), p.y + 15), imgui.GetColorU32Vec4(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0)), 3.0)
+
+                imgui.End()
+                imgui.PopStyleVar(2)
+                imgui.PopStyleColor(2)
+            else marketNotifDurum = false end
+        end
+        
+        if not renderWindow[0] then 
+            if fontAktifState then imgui.PopFont() end
+            return 
         end
         
         local currentTime = os.clock()
-        
         if bootState == 1 or bootState == 2 then
             local gecenSure = currentTime - bootStartTime
-            local sw, sh = getScreenResolution()
             imgui.SetNextWindowPos(imgui.ImVec2(sw/2, sh/2), imgui.Cond.Always, imgui.ImVec2(0.5, 0.5))
             imgui.SetNextWindowSize(imgui.ImVec2(400, 200), imgui.Cond.Always)
-            
-            imgui.PushStyleColor(imgui.Col.WindowBg, imgui.ImVec4(0.05, 0.05, 0.05, 0.95))
+            imgui.PushStyleColor(imgui.Col.WindowBg, imgui.ImVec4(0.15, 0.15, 0.15, 0.95))
             imgui.PushStyleVarFloat(imgui.StyleVar.WindowRounding, 15.0)
             imgui.PushStyleVarFloat(imgui.StyleVar.Alpha, 1.0)
             
             imgui.Begin("BootScreen", renderWindow, imgui.WindowFlags.NoTitleBar + imgui.WindowFlags.NoResize + imgui.WindowFlags.NoMove)
             
-            if fontAktif then imgui.PushFont(mevcutFontPointers[seciliFontIndex[0] + 1]) end
-            
             if bootState == 1 then
                 if gecenSure < 3.0 then
                     local alpha = math.abs(math.sin(gecenSure * 3))
                     imgui.PushStyleColor(imgui.Col.Text, imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], alpha))
-                    
                     local text = "Sistem Yukleniyor..."
                     local tSize = imgui.CalcTextSize(text)
-                    
                     imgui.SetCursorPos(imgui.ImVec2((400 - tSize.x)/2, (200 - tSize.y)/2))
                     imgui.Text(text)
-                    
                     imgui.PopStyleColor()
-                else
-                    bootState = 2
-                    bootStartTime = os.clock()
-                end
+                else bootState = 2; bootStartTime = os.clock() end
             elseif bootState == 2 then
                 if gecenSure < 3.0 then
                     local alpha = (gecenSure < 1.5) and (gecenSure / 1.5) or (1.0 - ((gecenSure - 1.5) / 1.5))
                     imgui.PushStyleColor(imgui.Col.Text, imgui.ImVec4(1.0, 1.0, 1.0, alpha))
-                    
-                    local text = "Made By Jakuzi"
+                    local text = "\xE2\x99\xA0 KaUI"
                     local tSize = imgui.CalcTextSize(text)
-                    
                     imgui.SetCursorPos(imgui.ImVec2((400 - (tSize.x * 1.5))/2, (200 - (tSize.y * 1.5))/2))
                     imgui.SetWindowFontScale(1.5)
                     imgui.Text(text)
                     imgui.SetWindowFontScale(1.0)
-                    
                     imgui.PopStyleColor()
-                else
-                    bootState = 3
-                    animState = 1
-                end
+                else bootState = 3; animState = 1 end
             end
-            
-            if fontAktif then imgui.PopFont() end
-            
             imgui.End()
             imgui.PopStyleVar(2)
             imgui.PopStyleColor()
+            
+            if fontAktifState then imgui.PopFont() end
             return 
         end
 
         if animState == 1 then
             animProgress = animProgress + 0.08
-            if animProgress >= 1.0 then 
-                animProgress = 1.0
-                animState = 2 
-            end
+            if animProgress >= 1.0 then animProgress = 1.0; animState = 2 end
         elseif animState == 3 then
             animProgress = animProgress - 0.08
-            if animProgress <= 0.0 then 
-                animProgress = 0.0
-                animState = 0
-                renderWindow[0] = false
-                mouseAktif = false
-                return
-            end
+            if animProgress <= 0.0 then animProgress = 0.0; animState = 0; renderWindow[0] = false; mouseAktif = false; return end
         end
 
         local targetAlpha = mouseAktif and 1.0 or 0.5
         imgui.PushStyleVarFloat(imgui.StyleVar.Alpha, animProgress * targetAlpha)
 
         if mouseTip[0] ~= 0 then
-            imgui.GetIO().MouseDrawCursor = true
-            imgui.SetMouseCursor(imgui.MouseCursor.None)
-            local foreDrawList = imgui.GetForegroundDrawList()
-            local mx, my = imgui.GetMousePos().x, imgui.GetMousePos().y
-            local c = imgui.GetColorU32Vec4(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], animProgress))
-            local cOut = imgui.GetColorU32Vec4(imgui.ImVec4(0, 0, 0, animProgress))
-            
-            if mouseTip[0] == 1 then
-                foreDrawList:AddTriangleFilled(imgui.ImVec2(mx, my), imgui.ImVec2(mx+15, my+5), imgui.ImVec2(mx+5, my+15), c)
-                foreDrawList:AddTriangle(imgui.ImVec2(mx, my), imgui.ImVec2(mx+15, my+5), imgui.ImVec2(mx+5, my+15), cOut, 1.5)
-            elseif mouseTip[0] == 2 then
-                foreDrawList:AddCircleFilled(imgui.ImVec2(mx, my), 5.0, c)
-                foreDrawList:AddCircle(imgui.ImVec2(mx, my), 6.0, cOut, 0, 1.5)
-            elseif mouseTip[0] == 3 then
-                foreDrawList:AddLine(imgui.ImVec2(mx-10, my), imgui.ImVec2(mx+10, my), c, 2.0)
-                foreDrawList:AddLine(imgui.ImVec2(mx, my-10), imgui.ImVec2(mx, my+10), c, 2.0)
+            local showCursor = (renderWindow[0] and mouseAktif) or (ozelScoreboardAktif[0] and scoreboardAcik and not renderWindow[0])
+            if showCursor then
+                imgui.GetIO().MouseDrawCursor = true
+                imgui.SetMouseCursor(imgui.MouseCursor.None)
+                local foreDrawList = imgui.GetForegroundDrawList()
+                local mx, my = imgui.GetMousePos().x, imgui.GetMousePos().y
+                local alpha = (renderWindow[0] and animProgress) or 1.0
+                local c = imgui.GetColorU32Vec4(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], alpha))
+                local cOut = imgui.GetColorU32Vec4(imgui.ImVec4(0, 0, 0, alpha))
+                
+                if mouseTip[0] == 1 then
+                    foreDrawList:AddTriangleFilled(imgui.ImVec2(mx, my), imgui.ImVec2(mx+15, my+5), imgui.ImVec2(mx+5, my+15), c)
+                    foreDrawList:AddTriangle(imgui.ImVec2(mx, my), imgui.ImVec2(mx+15, my+5), imgui.ImVec2(mx+5, my+15), cOut, 1.5)
+                elseif mouseTip[0] == 2 then
+                    foreDrawList:AddCircleFilled(imgui.ImVec2(mx, my), 5.0, c)
+                    foreDrawList:AddCircle(imgui.ImVec2(mx, my), 6.0, cOut, 0, 1.5)
+                elseif mouseTip[0] == 3 then
+                    foreDrawList:AddLine(imgui.ImVec2(mx-10, my), imgui.ImVec2(mx+10, my), c, 2.0)
+                    foreDrawList:AddLine(imgui.ImVec2(mx, my-10), imgui.ImVec2(mx, my+10), c, 2.0)
+                end
+            else
+                imgui.GetIO().MouseDrawCursor = false
             end
         else
-            imgui.GetIO().MouseDrawCursor = false 
+            imgui.GetIO().MouseDrawCursor = false
         end
 
-        local foreDrawList = imgui.GetForegroundDrawList()
-        if sesVeEfektAktif[0] and imgui.IsMouseClicked(0) and imgui.IsWindowHovered(imgui.HoveredFlags.AnyWindow) then
-            local mx, my = imgui.GetMousePos().x, imgui.GetMousePos().y
-            for i = 1, 15 do
-                table.insert(particles, { x = mx, y = my, vx = (math.random() - 0.5) * 8.0, vy = (math.random() - 0.5) * 8.0, life = 1.0, max_life = 1.0 + (math.random() * 0.5) })
-            end
-        end
-        for i = #particles, 1, -1 do
-            local p = particles[i]
-            p.x = p.x + p.vx; p.y = p.y + p.vy; p.life = p.life - 0.03
-            if p.life <= 0 then table.remove(particles, i)
-            else
-                local c = imgui.GetColorU32Vec4(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], (p.life / p.max_life) * animProgress))
-                foreDrawList:AddCircleFilled(imgui.ImVec2(p.x, p.y), 3.0 * p.life, c)
-            end
-        end
-
-        local fontAktifState = false
-        if fontComboCount > 0 and mevcutFontPointers[seciliFontIndex[0] + 1] then
-            imgui.PushFont(mevcutFontPointers[seciliFontIndex[0] + 1])
-            fontAktifState = true
-        end
-
-        imgui.SetNextWindowPos(imgui.ImVec2(350, 200), imgui.Cond.FirstUseEver, imgui.ImVec2(0.5, 0.5))
-        imgui.SetNextWindowSize(imgui.ImVec2(980, 680), imgui.Cond.FirstUseEver)
+        imgui.SetNextWindowPos(imgui.ImVec2(sw/2, sh/2), imgui.Cond.FirstUseEver, imgui.ImVec2(0.5, 0.5))
+        imgui.SetNextWindowSize(imgui.ImVec2(1000, 700), imgui.Cond.FirstUseEver)
         
-        imgui.Begin("Modern HUB - Kontrol Sende", renderWindow, imgui.WindowFlags.NoCollapse)
+        -- IMPLECI GIZLEYINCE TIKLAMA VE SURUKLEMEYI ONLEME GUVENLIGI (NoMouseInputs)
+        local mainWindowFlags = bit.bor(imgui.WindowFlags.NoCollapse, imgui.WindowFlags.NoTitleBar)
+        if not mouseAktif then
+            local noMouseInputs = imgui.WindowFlags.NoMouseInputs or 512
+            mainWindowFlags = bit.bor(mainWindowFlags, imgui.WindowFlags.NoMove, noMouseInputs)
+        end
+
+        imgui.Begin("KaUI", renderWindow, mainWindowFlags)
         
         local bgDrawList = imgui.GetWindowDrawList()
         local wPos = imgui.GetWindowPos()
         local wSize = imgui.GetWindowSize()
-        
+
         if bgTexture then
             bgDrawList:AddImage(bgTexture, wPos, imgui.ImVec2(wPos.x + wSize.x, wPos.y + wSize.y))
-        else
-            if animArkaplan[0] > 0 then 
-                local cTema = imgui.GetColorU32Vec4(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 0.3 * animProgress))
-                local cBeyaz = imgui.GetColorU32Vec4(imgui.ImVec4(1.0, 1.0, 1.0, 0.3 * animProgress))
-                local cMavi = imgui.GetColorU32Vec4(imgui.ImVec4(0.5, 0.8, 1.0, 0.3 * animProgress))
-                
-                for _, p in ipairs(bgParticles) do
-                    if animArkaplan[0] == 1 then
-                        p.y = p.y + p.speed
-                        if p.y > wSize.y then p.y = 0; p.x = math.random() * wSize.x end
-                        bgDrawList:AddCircleFilled(imgui.ImVec2(wPos.x + p.x, wPos.y + p.y), p.size, cBeyaz)
-                    elseif animArkaplan[0] == 2 then
-                        p.y = p.y + (p.speed * 2.5)
-                        if p.y > wSize.y then p.y = 0; p.x = math.random() * wSize.x end
-                        bgDrawList:AddRectFilled(imgui.ImVec2(wPos.x + p.x, wPos.y + p.y), imgui.ImVec2(wPos.x + p.x + 2, wPos.y + p.y + p.size * 5), cTema)
-                    elseif animArkaplan[0] == 3 then
-                        p.y = p.y + (p.speed * 0.8)
-                        p.phase = p.phase + 0.02
-                        local sway = math.sin(p.phase) * 1.5
-                        if p.y > wSize.y then p.y = 0; p.x = math.random() * wSize.x end
-                        bgDrawList:AddCircleFilled(imgui.ImVec2(wPos.x + p.x + sway, wPos.y + p.y), p.size * 1.2, cBeyaz)
-                    elseif animArkaplan[0] == 4 then
-                        p.y = p.y - (p.speed * 1.2)
-                        p.phase = p.phase + 0.03
-                        local sway = math.cos(p.phase) * 2.0
-                        if p.y < 0 then p.y = wSize.y; p.x = math.random() * wSize.x end
-                        bgDrawList:AddCircle(imgui.ImVec2(wPos.x + p.x + sway, wPos.y + p.y), p.size * 3.0, cMavi, 0, 1.5)
-                    elseif animArkaplan[0] == 5 then
-                        p.y = p.y + (p.speed * 3.0)
-                        p.x = p.x - (p.speed * 3.0)
-                        if p.y > wSize.y or p.x < 0 then p.y = 0; p.x = wSize.x + (math.random() * 500) end
-                        bgDrawList:AddLine(imgui.ImVec2(wPos.x + p.x, wPos.y + p.y), imgui.ImVec2(wPos.x + p.x + p.size*10, wPos.y + p.y - p.size*10), cTema, 2.0)
-                    end
+            bgDrawList:AddRectFilled(wPos, imgui.ImVec2(wPos.x + wSize.x, wPos.y + wSize.y), imgui.GetColorU32Vec4(imgui.ImVec4(0, 0, 0, 0.6)))
+        elseif animArkaplan[0] > 0 then 
+            local cTema = imgui.GetColorU32Vec4(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 0.4 * animProgress))
+            local cBeyaz = imgui.GetColorU32Vec4(imgui.ImVec4(1.0, 1.0, 1.0, 0.4 * animProgress))
+            local cMavi = imgui.GetColorU32Vec4(imgui.ImVec4(0.5, 0.8, 1.0, 0.4 * animProgress))
+            
+            for _, p in ipairs(bgParticles) do
+                if animArkaplan[0] == 1 then
+                    p.y = p.y + p.speed
+                    if p.y > wSize.y then p.y = 0; p.x = math.random() * wSize.x end
+                    bgDrawList:AddCircleFilled(imgui.ImVec2(wPos.x + p.x, wPos.y + p.y), p.size, cBeyaz)
+                elseif animArkaplan[0] == 2 then
+                    p.y = p.y + (p.speed * 2.5)
+                    if p.y > wSize.y then p.y = 0; p.x = math.random() * wSize.x end
+                    bgDrawList:AddRectFilled(imgui.ImVec2(wPos.x + p.x, wPos.y + p.y), imgui.ImVec2(wPos.x + p.x + 2, wPos.y + p.y + p.size * 5), cTema)
+                elseif animArkaplan[0] == 3 then
+                    p.y = p.y + (p.speed * 0.8)
+                    p.phase = p.phase + 0.02
+                    local sway = math.sin(p.phase) * 1.5
+                    if p.y > wSize.y then p.y = 0; p.x = math.random() * wSize.x end
+                    bgDrawList:AddCircleFilled(imgui.ImVec2(wPos.x + p.x + sway, wPos.y + p.y), p.size * 1.2, cBeyaz)
+                elseif animArkaplan[0] == 4 then
+                    p.y = p.y - (p.speed * 1.2)
+                    p.phase = p.phase + 0.03
+                    local sway = math.cos(p.phase) * 2.0
+                    if p.y < 0 then p.y = wSize.y; p.x = math.random() * wSize.x end
+                    bgDrawList:AddCircle(imgui.ImVec2(wPos.x + p.x + sway, wPos.y + p.y), p.size * 3.0, cMavi, 0, 1.5)
+                elseif animArkaplan[0] == 5 then
+                    p.y = p.y + (p.speed * 3.0)
+                    p.x = p.x - (p.speed * 3.0)
+                    if p.y > wSize.y or p.x < 0 then p.y = 0; p.x = wSize.x + (math.random() * 500) end
+                    bgDrawList:AddLine(imgui.ImVec2(wPos.x + p.x, wPos.y + p.y), imgui.ImVec2(wPos.x + p.x + p.size*10, wPos.y + p.y - p.size*10), cTema, 2.0)
                 end
             end
         end
+        
+        imgui.SetCursorPos(imgui.ImVec2(24, 20))
+        imgui.TextColored(imgui.ImVec4(1.0, 1.0, 1.0, 1.0), "\xE2\x99\xA0 KaUI")
+        imgui.SetCursorPos(imgui.ImVec2(24, 45))
+        imgui.TextColored(imgui.ImVec4(0.70, 0.70, 0.70, 1.0), "SAMP MULTIPURPOSE CONFIGURATOR")
+        
+        imgui.SetCursorPos(imgui.ImVec2(wSize.x - 38, 18))
+        imgui.PushStyleVarFloat(imgui.StyleVar.FrameRounding, 4.0)
+        imgui.PushStyleVarVec2(imgui.StyleVar.FramePadding, imgui.ImVec2(0, 0))
+        imgui.PushStyleColor(imgui.Col.Button, imgui.ImVec4(0.2, 0.2, 0.2, 1.0))
+        imgui.PushStyleColor(imgui.Col.ButtonHovered, imgui.ImVec4(0.8, 0.3, 0.3, 1.0))
+        imgui.PushStyleColor(imgui.Col.ButtonActive, imgui.ImVec4(1.0, 0.4, 0.4, 1.0))
+        imgui.PushStyleColor(imgui.Col.Text, imgui.ImVec4(1.0, 1.0, 1.0, 1.0))
+        if imgui.Button("X", imgui.ImVec2(22, 22)) then 
+            animState = 3 
+        end
+        imgui.PopStyleColor(4)
+        imgui.PopStyleVar(2)
 
-        imgui.BeginChild("Sidebar", imgui.ImVec2(220, 0), true)
-        imgui.Dummy(imgui.ImVec2(0, 5))
-        for i, isim in ipairs(sidebarMenuler) do
-            if seciliSekme[0] == i then
-                imgui.PushStyleColor(imgui.Col.Button, imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 0.8))
-                imgui.PushStyleColor(imgui.Col.ButtonHovered, imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0))
-                imgui.PushStyleColor(imgui.Col.ButtonActive, imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0))
-            else
-                imgui.PushStyleColor(imgui.Col.Button, imgui.ImVec4(0, 0, 0, 0))
-                imgui.PushStyleColor(imgui.Col.ButtonHovered, imgui.ImVec4(0.3, 0.3, 0.3, 0.4))
-                imgui.PushStyleColor(imgui.Col.ButtonActive, imgui.ImVec4(0.4, 0.4, 0.4, 0.6))
-            end
+        imgui.SetCursorPos(imgui.ImVec2(0, 85))
+        
+        imgui.BeginChild("Sidebar", imgui.ImVec2(280, -40), false) 
+        for kIdx, kategori in ipairs(menuKategoriler) do
+            imgui.SetCursorPosX(20)
+            imgui.TextColored(imgui.ImVec4(0.85, 0.85, 0.85, 1.0), kategori.isim)
             
-            if AnimButton(isim, imgui.ImVec2(-1, 40)) then seciliSekme[0] = i end
-            imgui.PopStyleColor(3)
+            imgui.Dummy(imgui.ImVec2(0, 5))
+            for i, oge in ipairs(kategori.ogeler) do
+                imgui.SetCursorPosX(20)
+                local iconFormat = ""
+                
+                if i == 1 and #kategori.ogeler > 1 then
+                    iconFormat = "\xE2\x95\x94"
+                elseif i == #kategori.ogeler then
+                    iconFormat = "\xE2\x95\x9A"
+                else
+                    iconFormat = "\xE2\x95\xA0"
+                end
+                
+                iconFormat = iconFormat .. " \xE2\x95\x90"
+                
+                if ModernNavButton(oge.id, iconFormat, oge.isim, seciliSekme[0] == oge.id, imgui.ImVec2(240, 40)) then 
+                    seciliSekme[0] = oge.id 
+                end
+                imgui.Dummy(imgui.ImVec2(0, 2))
+            end
+            imgui.Dummy(imgui.ImVec2(0, 10))
         end
         imgui.EndChild()
+
+        imgui.SetCursorPos(imgui.ImVec2(20, wSize.y - 30))
+        imgui.TextColored(imgui.ImVec4(0.70, 0.70, 0.70, 1.0), "[" .. getKeyName(seciliKisayol[0]) .. "] OPEN / CLOSE")
         
-        imgui.SameLine()
+        bgDrawList:AddLine(imgui.ImVec2(wPos.x + 280, wPos.y + 85), imgui.ImVec2(wPos.x + 280, wPos.y + wSize.y - 20), imgui.GetColorU32Vec4(imgui.ImVec4(1,1,1,0.10)), 1.0)
         
-        imgui.BeginChild("Content", imgui.ImVec2(0, 0), true)
+        imgui.SetCursorPos(imgui.ImVec2(300, 85))
+        imgui.BeginChild("Content", imgui.ImVec2(wSize.x - 320, wSize.y - 105), false)
         
         if seciliSekme[0] == 1 then
-            imgui.Dummy(imgui.ImVec2(0, 10))
-            imgui.TextColored(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0), "Modern Arayuz Paneli - Ana Sayfa")
-            imgui.TextColored(imgui.ImVec4(0.6, 0.6, 0.6, 1.0), "SAMP icin gelistirilmis cok amacli kontrol ve otomasyon arayuzu.")
+            imgui.TextColored(imgui.ImVec4(1.0, 1.0, 1.0, 1.0), "ANA SAYFA & GENEL BAKIS")
+            imgui.TextColored(imgui.ImVec4(0.85, 0.85, 0.85, 1.0), "SAMP icin gelistirilmis cok amacli kontrol ve otomasyon arayuzu.")
             imgui.Dummy(imgui.ImVec2(0, 20))
 
-            imgui.Columns(2, "AnaSayfaSutunlar", false)
-            imgui.SetColumnWidth(0, 450)
-
-            imgui.BeginChild("SistemDurumu", imgui.ImVec2(0, 120), true)
-            imgui.TextColored(imgui.ImVec4(0.9, 0.9, 0.9, 1.0), "Sistem Durumu")
+            imgui.BeginChild("AnaSayfaSolSutun", imgui.ImVec2(320, 0), false)
+            imgui.TextColored(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0), "SISTEM DURUMU")
             imgui.Separator()
             imgui.Dummy(imgui.ImVec2(0, 5))
             if sampev_yuklu then
-                imgui.TextColored(imgui.ImVec4(0.2, 0.8, 0.3, 1.0), "[ AKTIF ]")
+                imgui.TextColored(imgui.ImVec4(0.4, 1.0, 0.5, 1.0), "Aktif")
                 imgui.SameLine()
                 imgui.Text("Tum moduller ve SAMP.Lua entegrasyonu sorunsuz calisiyor.")
             else
-                imgui.TextColored(imgui.ImVec4(0.9, 0.2, 0.2, 1.0), "[ UYARI ]")
+                imgui.TextColored(imgui.ImVec4(1.0, 0.4, 0.4, 1.0), "Uyari")
                 imgui.SameLine()
                 imgui.Text("SAMP.Lua kutuphanesi eksik. Bazi islevler calismayabilir.")
             end
             imgui.Dummy(imgui.ImVec2(0, 5))
-            imgui.TextColored(imgui.ImVec4(0.6, 0.6, 0.6, 1.0), "Guncel Versiyon: v" .. SURUM)
-            imgui.EndChild()
+            imgui.TextColored(imgui.ImVec4(0.85, 0.85, 0.85, 1.0), "Guncel Versiyon: v" .. SURUM)
+            
+            imgui.Dummy(imgui.ImVec2(0, 20))
 
-            imgui.BeginChild("YapimciBilgileri", imgui.ImVec2(0, 160), true)
-            imgui.TextColored(imgui.ImVec4(0.9, 0.9, 0.9, 1.0), "Yapimci & Iletisim")
+            imgui.TextColored(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0), "YAPIMCI & ILETISIM")
             imgui.Separator()
             imgui.Dummy(imgui.ImVec2(0, 5))
-            DrawStat("Yapimci", "Jakuzi", 150, imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0))
-            DrawStat("Discord", "reyax.", 150, imgui.ImVec4(0.4, 0.4, 0.9, 1.0))
-
+            DrawStat("Yapimci", "Jakuzi", 150)
+            DrawStat("Discord", "reyax.", 150, imgui.ImVec4(0.5, 0.6, 0.9, 1.0))
             imgui.Dummy(imgui.ImVec2(0, 10))
-            imgui.TextColored(imgui.ImVec4(0.6, 0.6, 0.6, 1.0), "Discord Sunucusu:")
-            imgui.PushStyleColor(imgui.Col.Button, imgui.ImVec4(0.3, 0.4, 0.8, 0.5))
-            if imgui.Button("https://discord.gg/gMDEtNw5ac", imgui.ImVec2(-1, 30)) then
+            imgui.TextColored(imgui.ImVec4(0.85, 0.85, 0.85, 1.0), "Discord Sunucusu:")
+            if AnimButton("https://discord.gg/gMDEtNw5ac", imgui.ImVec2(-1, 35)) then
                 os.execute("start https://discord.gg/gMDEtNw5ac")
             end
-            if imgui.IsItemHovered() then
-                imgui.BeginTooltip()
-                imgui.Text("Linki tarayicida acmak icin tiklayin.")
-                imgui.EndTooltip()
-            end
-            imgui.PopStyleColor()
             imgui.EndChild()
 
-            imgui.NextColumn()
-
-            imgui.BeginChild("HizliBilgiler", imgui.ImVec2(0, 295), true)
-            imgui.TextColored(imgui.ImVec4(0.9, 0.9, 0.9, 1.0), "Panele Genel Bakis")
+            imgui.SameLine(0, 20)
+            
+            imgui.BeginChild("AnaSayfaSagSutun", imgui.ImVec2(0, 0), false)
+            imgui.TextColored(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0), "OZELLIKLER & BILGI")
             imgui.Separator()
             imgui.Dummy(imgui.ImVec2(0, 5))
             imgui.TextWrapped("Bu panel, rol yapma (RP) sunucularinda ve genel SAMP kullaniminda islerinizi hizlandirmak uzere tasarlanmistir. Tum moduller entegre ve optimize sekilde calisir.")
             imgui.Dummy(imgui.ImVec2(0, 10))
-            imgui.TextColored(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0), "One Cikan Ozellikler:")
             imgui.BulletText("Otomatik Mesaj & Reklam Botu")
             imgui.BulletText("Etkilesimli Canli Sohbet Logu")
             imgui.BulletText("Kapsamli Blackjack & Zar Hesaplayici")
@@ -951,154 +1330,142 @@ local newFrame = imgui.OnFrame(
             imgui.BulletText("Dinamik Tema ve Animasyon Yonetimi")
             imgui.EndChild()
 
-            imgui.Columns(1)
-
         elseif seciliSekme[0] == 2 then
-            imgui.TextColored(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0), "Karakter Profili ve Durumu")
+            imgui.TextColored(imgui.ImVec4(1.0, 1.0, 1.0, 1.0), "KARAKTER PROFILI")
             BilgiKutusu("Oyun ici karakter ve lisans bilgilerinizi anlik olarak listeler.")
             imgui.Dummy(imgui.ImVec2(0, 5))
-            
-            if AnimButton("Bilgileri Yenile (/karakter)", imgui.ImVec2(220, 35)) then sampSendChat("/karakter") end
-            imgui.SameLine()
-            if AnimButton("Kimligi Goster (/kimlikgoster)", imgui.ImVec2(220, 35)) then 
-                local res, myId = sampGetPlayerIdByCharHandle(PLAYER_PED)
-                if res then sampSendChat("/kimlikgoster " .. myId) end
-            end
-            imgui.SameLine()
-            if AnimButton("Lisanslari Goster (/ehliyetgoster)", imgui.ImVec2(-1, 35)) then 
-                local res, myId = sampGetPlayerIdByCharHandle(PLAYER_PED)
-                if res then sampSendChat("/ehliyetgoster " .. myId) end
+            if sampIsLocalPlayerSpawned() and doesCharExist(PLAYER_PED) then
+                if AnimButton("Bilgileri Yenile", imgui.ImVec2(180, 35)) then sampSendChat("/karakter") end
+                imgui.SameLine()
+                if AnimButton("Kimligi Goster", imgui.ImVec2(180, 35)) then 
+                    local res, myId = sampGetPlayerIdByCharHandle(PLAYER_PED)
+                    if res then sampSendChat("/kimlikgoster " .. myId) end 
+                end
+                imgui.SameLine()
+                if AnimButton("Lisanslari Goster", imgui.ImVec2(180, 35)) then 
+                    local res, myId = sampGetPlayerIdByCharHandle(PLAYER_PED)
+                    if res then sampSendChat("/ehliyetgoster " .. myId) end 
+                end
+            else
+                imgui.TextColored(imgui.ImVec4(1.0, 0.4, 0.4, 1.0), "Oyuna baglanmadan islem yapamazsiniz.")
             end
             
             imgui.Dummy(imgui.ImVec2(0, 10))
             
-            imgui.Columns(2, "CharStatsColumns", false)
-            
-            imgui.BeginChild("KisiselBilgiler", imgui.ImVec2(0, 215), true)
-            imgui.TextColored(imgui.ImVec4(0.9, 0.9, 0.9, 1.0), "Kisisel Bilgiler")
+            imgui.BeginChild("ProfilSolCol", imgui.ImVec2(350, 0), false)
+            imgui.TextColored(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0), "KISISEL BILGILER")
             imgui.Separator()
-            DrawStat("Isim", charStats.isim, 140)
-            DrawStat("Vatandaslik No", charStats.tc_no, 140)
-            DrawStat("Uyruk", charStats.uyruk, 140)
-            DrawStat("Cinsiyet", charStats.cinsiyet, 140)
-            DrawStat("Dogum Tarihi", charStats.dogum, 140)
-            DrawStat("Medeni Durum", charStats.medeni, 140)
-            DrawStat("Es", charStats.es, 140)
-            DrawStat("Telefon", charStats.telefon, 140)
-            imgui.EndChild()
+            DrawStat("Isim", charStats.isim, 160)
+            DrawStat("Vatandaslik No", charStats.tc_no, 160)
+            DrawStat("Uyruk", charStats.uyruk, 160)
+            DrawStat("Cinsiyet", charStats.cinsiyet, 160)
+            DrawStat("Dogum Tarihi", charStats.dogum, 160)
+            DrawStat("Medeni Durum", charStats.medeni, 160)
+            DrawStat("Es", charStats.es, 160)
+            DrawStat("Telefon", charStats.telefon, 160)
 
-            imgui.BeginChild("KariyerBilgileri", imgui.ImVec2(0, 155), true)
-            imgui.TextColored(imgui.ImVec4(0.9, 0.9, 0.9, 1.0), "Kariyer & Birlik")
+            imgui.Dummy(imgui.ImVec2(0, 15))
+            imgui.TextColored(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0), "KARIYER & BIRLIK")
             imgui.Separator()
-            DrawStat("Seviye", charStats.seviye, 140)
-            DrawStat("EXP", charStats.exp, 140)
-            DrawStat("Oynama Saati", charStats.saat, 140)
-            DrawStat("Birlik", charStats.birlik, 140)
-            DrawStat("Rutbe", charStats.rutbe, 140)
-            DrawStat("Meslek", charStats.meslek, 140)
+            DrawStat("Seviye", charStats.seviye, 160)
+            DrawStat("EXP", charStats.exp, 160)
+            DrawStat("Oynama Saati", charStats.saat, 160)
+            DrawStat("Birlik", charStats.birlik, 160)
+            DrawStat("Rutbe", charStats.rutbe, 160)
+            DrawStat("Meslek", charStats.meslek, 160)
             imgui.EndChild()
-
-            imgui.NextColumn()
             
-            imgui.BeginChild("EkonomiBilgileri", imgui.ImVec2(0, 155), true)
-            imgui.TextColored(imgui.ImVec4(0.9, 0.9, 0.9, 1.0), "Ekonomi & Varlik")
-            imgui.Separator()
-            DrawStat("Nakit Para", charStats.para, 140)
-            DrawStat("Banka Hesabi", charStats.banka, 140)
-            DrawStat("Market Bakiye", charStats.market, 140)
-            DrawStat("VIP Durumu", charStats.vip, 140)
-            DrawStat("Payday Suresi", charStats.payday, 140)
-            DrawStat("Maas Suresi", charStats.maas, 140)
-            imgui.EndChild()
-
-            imgui.BeginChild("SaglikBilgileri", imgui.ImVec2(0, 110), true)
-            imgui.TextColored(imgui.ImVec4(0.9, 0.9, 0.9, 1.0), "Saglik & Durum Grafigi")
-            imgui.Separator()
+            imgui.SameLine(0, 15)
             
+            imgui.BeginChild("ProfilSagCol", imgui.ImVec2(0, 0), false)
+            imgui.TextColored(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0), "EKONOMI & VARLIK")
+            imgui.Separator()
+            DrawStat("Nakit Para", charStats.para, 160)
+            DrawStat("Banka Hesabi", charStats.banka, 160)
+            DrawStat("Market Bakiye", charStats.market, 160)
+            DrawStat("VIP Durumu", charStats.vip, 160)
+            DrawStat("Payday Suresi", charStats.payday, 160)
+            DrawStat("Maas Suresi", charStats.maas, 160)
+
+            imgui.Dummy(imgui.ImVec2(0, 15))
+            imgui.TextColored(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0), "SAGLIK DURUMU")
+            imgui.Separator()
             local hpStr = charStats.can:gsub(",", ".")
             local hpNum = tonumber(hpStr) or 0
             local arStr = charStats.zirh:gsub(",", ".")
             local arNum = tonumber(arStr) or 0
-
-            imgui.TextColored(imgui.ImVec4(0.6, 0.6, 0.6, 1.0), "Can Durumu:")
-            imgui.PushStyleColor(imgui.Col.PlotHistogram, imgui.ImVec4(0.8, 0.2, 0.2, 1.0))
-            imgui.ProgressBar(math.min(1.0, hpNum / 100.0), imgui.ImVec2(-1, 20), tostring(hpNum))
+            imgui.TextColored(imgui.ImVec4(0.85, 0.85, 0.85, 1.0), "Can Durumu:")
+            imgui.PushStyleColor(imgui.Col.PlotHistogram, imgui.ImVec4(0.8, 0.3, 0.3, 1.0))
+            imgui.ProgressBar(math.min(1.0, hpNum / 100.0), imgui.ImVec2(-1, 25), tostring(hpNum))
             imgui.PopStyleColor()
-
             imgui.Dummy(imgui.ImVec2(0, 5))
-            imgui.TextColored(imgui.ImVec4(0.6, 0.6, 0.6, 1.0), "Zirh Durumu:")
-            imgui.PushStyleColor(imgui.Col.PlotHistogram, imgui.ImVec4(0.7, 0.7, 0.7, 1.0))
-            imgui.ProgressBar(math.min(1.0, arNum / 100.0), imgui.ImVec2(-1, 20), tostring(arNum))
+            imgui.TextColored(imgui.ImVec4(0.85, 0.85, 0.85, 1.0), "Zirh Durumu:")
+            imgui.PushStyleColor(imgui.Col.PlotHistogram, imgui.ImVec4(0.6, 0.6, 0.6, 1.0))
+            imgui.ProgressBar(math.min(1.0, arNum / 100.0), imgui.ImVec2(-1, 25), tostring(arNum))
             imgui.PopStyleColor()
-            imgui.EndChild()
             
-            imgui.BeginChild("LisansBilgileri", imgui.ImVec2(0, 95), true)
-            imgui.TextColored(imgui.ImVec4(0.9, 0.9, 0.9, 1.0), "Lisans & Belgeler")
+            imgui.Dummy(imgui.ImVec2(0, 15))
+            imgui.TextColored(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0), "LISANSLAR")
             imgui.Separator()
-            DrawStat("Ehliyet", charStats.ehliyet, 140)
-            DrawStat("Ucus Lisansi", charStats.ucus, 140)
-            DrawStat("Silah Ruhsati", charStats.silah, 140)
+            DrawStat("Ehliyet", charStats.ehliyet, 160)
+            DrawStat("Ucus Lisansi", charStats.ucus, 160)
+            DrawStat("Silah Ruhsati", charStats.silah, 160)
             imgui.EndChild()
-            imgui.Columns(1)
 
         elseif seciliSekme[0] == 3 then
-            imgui.TextColored(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0), "Oturum Istatistikleri & Arkaplan Verileri")
+            imgui.TextColored(imgui.ImVec4(1.0, 1.0, 1.0, 1.0), "OTURUM ISTATISTIKLERI")
             BilgiKutusu("Mevcut oturumdaki fiziksel aktiviteleri ve finansal verileri gosterir.")
-            imgui.Dummy(imgui.ImVec2(0, 5))
+            imgui.Dummy(imgui.ImVec2(0, 15))
             
             local runTime = os.time() - sesStartT
             local saat = math.floor(runTime / 3600)
             local dk = math.floor((runTime % 3600) / 60)
             
-            imgui.BeginChild("SesStatKutu", imgui.ImVec2(0, 0), true)
-            imgui.Columns(2, "StatsCol", false)
-            imgui.SetColumnWidth(0, 350)
-            
-            imgui.TextColored(imgui.ImVec4(0.9, 0.9, 0.9, 1.0), "Zaman & Etkilesim")
+            imgui.BeginChild("StatSolCol", imgui.ImVec2(350, 0), false)
+            imgui.TextColored(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0), "ZAMAN & ETKILESIM")
             imgui.Separator()
             DrawStat("Gecen Sure", string.format("%d saat, %d dakika", saat, dk), 200)
             DrawStat("AFK Kalinan Sure", string.format("%d dakika", math.floor(sesAfkTime / 60)), 200)
             DrawStat("Sohbete Yazilanlar", tostring(sesMsgCount) .. " mesaj", 200)
             DrawStat("Ateslenen Mermi", tostring(sesShotsFired) .. " el", 200)
             DrawStat("Görülen Oyuncular", tostring(#sesPlayersSeen) .. " kisi", 200)
-            
-            imgui.NextColumn()
-            
-            imgui.TextColored(imgui.ImVec4(0.9, 0.9, 0.9, 1.0), "Fiziksel & Ekonomik Veriler")
+            imgui.EndChild()
+
+            imgui.SameLine(0, 15)
+
+            imgui.BeginChild("StatSagCol", imgui.ImVec2(0, 0), false)
+            imgui.TextColored(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0), "FIZIKSEL & EKONOMIK")
             imgui.Separator()
             DrawStat("Yaya Gidilen Mesafe", string.format("%.2f km", sesFootDist / 1000.0), 200)
             DrawStat("Aracla Gidilen Mesafe", string.format("%.2f km", sesCarDist / 1000.0), 200)
-            DrawStat("Maksimum Hiz", string.format("%.1f km/h", sesMaxSpeed), 200, imgui.ImVec4(0.8, 0.3, 0.3, 1.0))
+            DrawStat("Maksimum Hiz", string.format("%.1f km/h", sesMaxSpeed), 200, imgui.ImVec4(1.0, 0.4, 0.4, 1.0))
             DrawStat("Binilen Araclar", tostring(sesCarsUsed) .. " adet", 200)
-            
             imgui.Dummy(imgui.ImVec2(0, 10))
-            DrawStat("Kazanilan Ciro", "$" .. formatNumber(sesMoneyEarned), 200, imgui.ImVec4(0.3, 0.9, 0.4, 1.0))
-            DrawStat("Kaybedilen Para", "$" .. formatNumber(sesMoneyLost), 200, imgui.ImVec4(0.9, 0.3, 0.3, 1.0))
-            
-            imgui.Columns(1)
+            DrawStat("Kazanilan Ciro", "$" .. formatNumber(sesMoneyEarned), 200, imgui.ImVec4(0.4, 1.0, 0.4, 1.0))
+            DrawStat("Kaybedilen Para", "$" .. formatNumber(sesMoneyLost), 200, imgui.ImVec4(1.0, 0.4, 0.4, 1.0))
             imgui.EndChild()
 
         elseif seciliSekme[0] == 4 then
-            imgui.TextColored(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0), "Canli & Etkilesimli Rol Logu")
+            imgui.TextColored(imgui.ImVec4(1.0, 1.0, 1.0, 1.0), "CANLI SOHBET & LOG")
             BilgiKutusu("Sohbet gecmisini kaydetmenizi veya kopyalamanizi saglar. Islem icin satira sag tiklayin.")
             
-            imgui.SameLine(imgui.GetWindowContentRegionWidth() - 250)
-            if AnimButton("Sohbeti Not Defterine Kaydet", imgui.ImVec2(250, 25)) then
+            imgui.SameLine(imgui.GetWindowContentRegionWidth() - 220)
+            if AnimButton("Logu Kaydet", imgui.ImVec2(220, 35)) then
                 local path = getWorkingDirectory() .. "\\chatlog" .. chatLogCount[0] .. ".txt"
                 local f = io.open(path, "w")
-                if f then
+                if f then 
                     f:write("--- CHATLOG " .. chatLogCount[0] .. " ---\n")
                     for _, log in ipairs(chatLog) do f:write(log.raw .. "\n") end
                     f:close()
                     sampAddChatMessage("{4A90E2}[Sistem] {FFFFFF}Sohbet " .. path .. " adresine kaydedildi.", -1)
                     chatLogCount[0] = chatLogCount[0] + 1
-                    ayarlariKaydet()
+                    ayarlariKaydet() 
                 end
             end
-            
             imgui.Dummy(imgui.ImVec2(0, 5))
             
-            imgui.BeginChild("ChatHistory", imgui.ImVec2(0, -45), true)
+            imgui.PushStyleColor(imgui.Col.ChildBg, imgui.ImVec4(0.12, 0.12, 0.12, 1.0))
+            imgui.BeginChild("ChatHistory", imgui.ImVec2(0, -55), false)
             for i, log in ipairs(chatLog) do
                 imgui.PushTextWrapPos(imgui.GetWindowWidth() - 15)
                 imgui.TextUnformatted(log.txt)
@@ -1116,28 +1483,25 @@ local newFrame = imgui.OnFrame(
                 imgui.GetWindowDrawList():AddLine(
                     imgui.ImVec2(imgui.GetCursorScreenPos().x, imgui.GetCursorScreenPos().y),
                     imgui.ImVec2(imgui.GetCursorScreenPos().x + imgui.GetWindowWidth() - 30, imgui.GetCursorScreenPos().y),
-                    imgui.GetColorU32Vec4(imgui.ImVec4(1,1,1,0.05)), 1.0
-                )
-                imgui.Dummy(imgui.ImVec2(0, 2))
+                    imgui.GetColorU32Vec4(imgui.ImVec4(1,1,1,0.05)), 1.0)
+                imgui.Dummy(imgui.ImVec2(0, 4))
             end
             if imgui.GetScrollY() >= imgui.GetScrollMaxY() then imgui.SetScrollHereY(1.0) end
             imgui.EndChild()
+            imgui.PopStyleColor()
             
             imgui.PushItemWidth(180)
-            if #currentNearbyNames > 0 then
-                imgui.Combo("##NearbyChat", seciliChatTarget, nearbyComboItems, #currentNearbyNames)
-            else
-                imgui.Combo("##NearbyChat", seciliChatTarget, nearbyComboItems, 1)
-            end
+            if #currentNearbyNames > 0 then imgui.Combo("##NearbyChat", seciliChatTarget, nearbyComboItems, #currentNearbyNames) 
+            else imgui.Combo("##NearbyChat", seciliChatTarget, nearbyComboItems, 1) end
             imgui.PopItemWidth()
-            
             imgui.SameLine()
+            
             imgui.PushItemWidth(250)
-            imgui.InputText("Mesaj Yaz", chatMesajInput, 256)
+            imgui.InputText("Mesaj", chatMesajInput, 256)
             imgui.PopItemWidth()
-            
             imgui.SameLine()
-            if AnimButton("PM At", imgui.ImVec2(75, 25)) then
+            
+            if AnimButton("PM At", imgui.ImVec2(80, 35)) then
                 if #currentNearbyIDs > 0 then
                     local tid = currentNearbyIDs[seciliChatTarget[0] + 1]
                     local msg = ffi.string(chatMesajInput)
@@ -1145,7 +1509,7 @@ local newFrame = imgui.OnFrame(
                 end
             end
             imgui.SameLine()
-            if AnimButton("Fisilda", imgui.ImVec2(75, 25)) then
+            if AnimButton("Fisilda", imgui.ImVec2(80, 35)) then
                 if #currentNearbyIDs > 0 then
                     local tid = currentNearbyIDs[seciliChatTarget[0] + 1]
                     local msg = ffi.string(chatMesajInput)
@@ -1154,18 +1518,17 @@ local newFrame = imgui.OnFrame(
             end
 
         elseif seciliSekme[0] == 5 then
-            imgui.TextColored(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0), "Otomatik Mesaj (Bot) Ayarlari")
-            BilgiKutusu("Belirtilen sure araliklarinda arka planda otomatik mesaj veya komut gonderir.")
+            imgui.TextColored(imgui.ImVec4(1.0, 1.0, 1.0, 1.0), "OTOMATIK MESAJ BOTU")
+            BilgiKutusu("Belirtilen sure araliklarinda arka planda otomatik mesaj gonderir.")
             imgui.Dummy(imgui.ImVec2(0, 5))
             
-            imgui.BeginChild("OtoEkle", imgui.ImVec2(0, 130), true)
             imgui.PushItemWidth(150)
             imgui.InputText("Isim Belirle", otoIsim, 128)
             imgui.SameLine()
             imgui.PushItemWidth(350)
-            imgui.InputText("Gonderilecek Icerik (/ ile)", otoKomut, 256)
-            imgui.PopItemWidth(); imgui.PopItemWidth()
-            
+            imgui.InputText("Komut (/ ile)", otoKomut, 256)
+            imgui.PopItemWidth()
+            imgui.PopItemWidth()
             imgui.Dummy(imgui.ImVec2(0, 5))
             
             imgui.PushItemWidth(100)
@@ -1173,49 +1536,46 @@ local newFrame = imgui.OnFrame(
             imgui.SameLine()
             imgui.SliderInt("Saat", otoSaat, 0, 23)
             imgui.SameLine()
-            imgui.SliderInt("Dakika", otoDakika, 0, 59)
+            imgui.SliderInt("Dk.", otoDakika, 0, 59)
             imgui.SameLine()
-            imgui.SliderInt("Saniye", otoSaniye, 0, 59)
+            imgui.SliderInt("Sn.", otoSaniye, 0, 59)
             imgui.PopItemWidth()
-            
             imgui.Dummy(imgui.ImVec2(0, 5))
-            if AnimButton("Yeni Islem Ekle", imgui.ImVec2(-1, 30)) then
+            
+            if AnimButton("YENI GOREV EKLE", imgui.ImVec2(-1, 35)) then
                 local isimS = ffi.string(otoIsim)
                 local komS = ffi.string(otoKomut)
                 if isimS ~= "" and komS ~= "" then
                     if otoGun[0] == 0 and otoSaat[0] == 0 and otoDakika[0] == 0 and otoSaniye[0] == 0 then
                         sampAddChatMessage("{FF0000}[Uyari] {FFFFFF}Lutfen gecerli bir sure ayarlayiniz.", -1)
                     else
-                        table.insert(otoMesajlar, {
-                            isim = isimS, komut = komS, gun = otoGun[0], saat = otoSaat[0], 
-                            dakika = otoDakika[0], saniye = otoSaniye[0], aktif = false, sonraki_zaman = 0
-                        })
+                        table.insert(otoMesajlar, { isim = isimS, komut = komS, gun = otoGun[0], saat = otoSaat[0], dakika = otoDakika[0], saniye = otoSaniye[0], aktif = false, sonraki_zaman = 0 })
                         ayarlariKaydet()
-                        ffi.copy(otoIsim, ""); ffi.copy(otoKomut, "")
-                        otoGun[0]=0; otoSaat[0]=0; otoDakika[0]=5; otoSaniye[0]=0
+                        ffi.copy(otoIsim, ""); ffi.copy(otoKomut, ""); otoGun[0]=0; otoSaat[0]=0; otoDakika[0]=5; otoSaniye[0]=0
                     end
                 end
             end
-            imgui.EndChild()
             
+            imgui.Dummy(imgui.ImVec2(0, 15))
+            imgui.TextColored(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0), "GOREV LISTESI")
             imgui.Separator()
-            imgui.BeginChild("OtoListe", imgui.ImVec2(0, 0), true)
+            imgui.Dummy(imgui.ImVec2(0, 5))
+            
             if #otoMesajlar == 0 then
-                imgui.TextColored(imgui.ImVec4(0.6, 0.6, 0.6, 1.0), "Aktif bir otomatik mesaj botu bulunmamaktadir.")
+                imgui.TextColored(imgui.ImVec4(0.85, 0.85, 0.85, 1.0), "Aktif gorev bulunmuyor.")
             else
                 for i, v in ipairs(otoMesajlar) do
                     local dl = imgui.GetWindowDrawList()
                     local cp = imgui.GetCursorScreenPos()
+                    local statusColor = v.aktif and imgui.GetColorU32Vec4(imgui.ImVec4(0.4, 1.0, 0.4, 1.0)) or imgui.GetColorU32Vec4(imgui.ImVec4(1.0, 0.4, 0.4, 1.0))
+                    dl:AddCircleFilled(imgui.ImVec2(cp.x + 10, cp.y + 18), 8.0, statusColor)
                     
-                    local statusColor = v.aktif and imgui.GetColorU32Vec4(imgui.ImVec4(0.2, 0.8, 0.3, 1.0)) or imgui.GetColorU32Vec4(imgui.ImVec4(0.9, 0.2, 0.2, 1.0))
-                    dl:AddCircleFilled(imgui.ImVec2(cp.x + 15, cp.y + 15), 8.0, statusColor)
+                    imgui.SetCursorPos(imgui.ImVec2(imgui.GetCursorPos().x + 25, imgui.GetCursorPos().y + 5))
+                    imgui.TextColored(imgui.ImVec4(1.0, 1.0, 1.0, 1.0), string.format("%s (Sure: %dG %dS %dD %dSn)", v.isim, v.gun, v.saat, v.dakika, v.saniye))
                     
-                    imgui.SetCursorPos(imgui.ImVec2(imgui.GetCursorPos().x + 35, imgui.GetCursorPos().y + 5))
-                    imgui.TextColored(imgui.ImVec4(0.9, 0.9, 0.9, 1.0), string.format("%s (Tekrar: %dG %dS %dD %dSn)", v.isim, v.gun, v.saat, v.dakika, v.saniye))
+                    imgui.SetCursorPos(imgui.ImVec2(imgui.GetWindowWidth() - 170, imgui.GetCursorPos().y - 32))
                     
-                    imgui.SetCursorPos(imgui.ImVec2(imgui.GetWindowWidth() - 170, imgui.GetCursorPos().y - 30))
-                    
-                    if AnimButton((v.aktif and "Durdur##" or "Baslat##") .. i, imgui.ImVec2(80, 25)) then
+                    if AnimButton((v.aktif and "Durdur##" or "Baslat##") .. i, imgui.ImVec2(80, 30)) then
                         v.aktif = not v.aktif
                         if v.aktif then
                             v.sonraki_zaman = os.time() + (v.gun * 86400) + (v.saat * 3600) + (v.dakika * 60) + v.saniye
@@ -1225,367 +1585,390 @@ local newFrame = imgui.OnFrame(
                         end
                         ayarlariKaydet()
                     end
-                    
                     imgui.SameLine()
-                    imgui.PushStyleColor(imgui.Col.Button, imgui.ImVec4(0.8, 0.2, 0.2, 1.0))
-                    if AnimButton("Sil##otodelete"..i, imgui.ImVec2(50, 25)) then
+                    if AnimButton("Sil##otodelete"..i, imgui.ImVec2(50, 30)) then
                         table.remove(otoMesajlar, i)
                         ayarlariKaydet()
                     end
-                    imgui.PopStyleColor()
-                    
-                    imgui.Dummy(imgui.ImVec2(0, 10))
+                    imgui.Dummy(imgui.ImVec2(0, 5))
                     imgui.Separator()
                 end
             end
-            imgui.EndChild()
 
         elseif seciliSekme[0] == 6 then
-            imgui.TextColored(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0), "Garaj & Arac Kontrolleri")
+            imgui.TextColored(imgui.ImVec4(1.0, 1.0, 1.0, 1.0), "GARAJ VE ARAC KONTROLLERI")
             BilgiKutusu("Arac fonksiyonlarinin uzaktan veya iceriden hizli yonetimini saglar.")
+            imgui.Dummy(imgui.ImVec2(0, 15))
             
-            imgui.BeginChild("KilitKutusu", imgui.ImVec2(0, 140), true)
-            if AnimButton("Cevredeki Araclari Tara [ /arac liste ]", imgui.ImVec2(-1, 35)) then sampSendChat("/arac liste") end
-            imgui.Dummy(imgui.ImVec2(0, 5))
-            
-            imgui.PushItemWidth(300)
-            if comboAracCount > 0 then imgui.Combo("##AracSecici", seciliAracIndex, comboAracItems, comboAracCount)
-            else local d = ffi.new('const char*[1]', {ffi.cast("const char*", "Cevrede arac bulunamadi")}); imgui.Combo("##AracSecici", seciliAracIndex, d, 1) end
-            imgui.PopItemWidth()
-            
-            imgui.SameLine()
-            if AnimButton("Kilitle / Ac", imgui.ImVec2(120, 30)) then
-                if #aktifAraclar > 0 then sampSendChat("/akilit " .. tostring(aktifAraclar[seciliAracIndex[0] + 1].id)) end
-            end
-            imgui.SameLine()
-            if AnimButton("Konumu Bul (GPS)", imgui.ImVec2(120, 30)) then
-                if #aktifAraclar > 0 then sampSendChat("/agps " .. tostring(aktifAraclar[seciliAracIndex[0] + 1].id)) end
-            end
-            imgui.EndChild()
-            
-            imgui.Dummy(imgui.ImVec2(0, 5))
-            imgui.BeginChild("AracDisiKontrol", imgui.ImVec2(0, 125), true)
-            imgui.TextColored(imgui.ImVec4(0.6, 0.6, 0.6, 1.0), "Arac Disi")
-            imgui.Separator()
-            if AnimButton("Yanindaki Araci Kilitle / Ac [ N Tusu ]", imgui.ImVec2(-1, 30)) then table.insert(tusKuyrugu, vkeys.VK_N) end
-            imgui.Dummy(imgui.ImVec2(0, 2))
-            if AnimButton("Kaputu Ac", imgui.ImVec2(150, 30)) then sampSendChat("/arac kaput") end imgui.SameLine()
-            if AnimButton("Bagaji Ac", imgui.ImVec2(150, 30)) then sampSendChat("/arac bagaj") end imgui.SameLine()
-            if AnimButton("Park Et", imgui.ImVec2(100, 30)) then sampSendChat("/park") end imgui.SameLine()
-            if AnimButton("Sakla", imgui.ImVec2(100, 30)) then sampSendChat("/arac sakla") end
-            imgui.EndChild()
-            
-            imgui.Dummy(imgui.ImVec2(0, 5))
-            if isCharInAnyCar(PLAYER_PED) then
-                imgui.BeginChild("AracIciKontrol", imgui.ImVec2(0, 0), true)
-                imgui.TextColored(imgui.ImVec4(0.6, 0.6, 0.6, 1.0), "Icerideki Kontroller ve Hasar Durumu")
+            if sampIsLocalPlayerSpawned() and doesCharExist(PLAYER_PED) then
+                if AnimButton("Cevredeki Araclari Tara / Yenile", imgui.ImVec2(-1, 35)) then sampSendChat("/arac liste") end
+                imgui.Dummy(imgui.ImVec2(0, 5))
+                
+                imgui.PushItemWidth(300)
+                if comboAracCount > 0 then imgui.Combo("##AracSecici", seciliAracIndex, comboAracItems, comboAracCount)
+                else local d = ffi.new('const char*[1]', {ffi.cast("const char*", "Cevrede arac bulunamadi")}); imgui.Combo("##AracSecici", seciliAracIndex, d, 1) end
+                imgui.PopItemWidth()
+                imgui.SameLine()
+                
+                if AnimButton("Kilitle / Ac", imgui.ImVec2(120, 35)) then
+                    if #aktifAraclar > 0 then sampSendChat("/akilit " .. tostring(aktifAraclar[seciliAracIndex[0] + 1].id)) end
+                end
+                imgui.SameLine()
+                if AnimButton("GPS'de Bul", imgui.ImVec2(120, 35)) then
+                    if #aktifAraclar > 0 then sampSendChat("/agps " .. tostring(aktifAraclar[seciliAracIndex[0] + 1].id)) end
+                end
+                
+                imgui.Dummy(imgui.ImVec2(0, 15))
+                imgui.TextColored(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0), "ARAC DISI KONTROLLER")
                 imgui.Separator()
-                
-                local car = storeCarCharIsInNoSave(PLAYER_PED)
-                local hPercent = math.max(0, math.min(1, (getCarHealth(car) - 250) / 750))
-                
-                imgui.Columns(2, "CarCols", false)
-                imgui.SetColumnWidth(0, 340)
-                
-                imgui.Text("Arac Genel Durumu:")
-                imgui.ProgressBar(hPercent, imgui.ImVec2(310, 20), string.format("Saglamlik: %d%%", math.floor(hPercent * 100)))
                 imgui.Dummy(imgui.ImVec2(0, 5))
-                if AnimButton("Motoru Calistir / Durdur [ Y ]", imgui.ImVec2(310, 35)) then table.insert(tusKuyrugu, vkeys.VK_Y) end 
-                if AnimButton("Farlari Yak / Sondur [ N ]", imgui.ImVec2(310, 35)) then table.insert(tusKuyrugu, vkeys.VK_N) end 
-                if AnimButton("Kapilari Iceriden Kilitle", imgui.ImVec2(310, 35)) then sampSendChat("/arac kilit") end
-                imgui.Dummy(imgui.ImVec2(0, 5))
-                if imgui.Checkbox("Surus Kamerasini Sabitle", kameraSabitleAktif) then ayarlariKaydet() end
-                BilgiKutusu("Arac kullanimi sirasinda kamera sarsintilarini devre disi birakir.")
+                if AnimButton("Yanindaki Araci Kilitle / Ac [ N Tusu ]", imgui.ImVec2(-1, 35)) then table.insert(tusKuyrugu, vkeys.VK_N) end
+                imgui.Dummy(imgui.ImVec2(0, 2))
+                if AnimButton("Kaputu Ac", imgui.ImVec2(150, 35)) then sampSendChat("/arac kaput") end
+                imgui.SameLine()
+                if AnimButton("Bagaji Ac", imgui.ImVec2(150, 35)) then sampSendChat("/arac bagaj") end
+                imgui.SameLine()
+                if AnimButton("Park Et", imgui.ImVec2(100, 35)) then sampSendChat("/park") end
+                imgui.SameLine()
+                if AnimButton("Sakla", imgui.ImVec2(100, 35)) then sampSendChat("/arac sakla") end
                 
-                imgui.NextColumn()
+                imgui.Dummy(imgui.ImVec2(0, 15))
                 
-                imgui.TextColored(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0), "Canli Hasar Sensoru")
-                
-                local dl = imgui.GetWindowDrawList()
-                local p = imgui.GetCursorScreenPos()
-                local cx, cy = p.x + 80, p.y + 70
-                
-                local cGreen = imgui.GetColorU32Vec4(imgui.ImVec4(0.2, 0.8, 0.3, 1.0))
-                local cRed = imgui.GetColorU32Vec4(imgui.ImVec4(0.9, 0.2, 0.2, 1.0))
-                local cBody = imgui.GetColorU32Vec4(imgui.ImVec4(0.25, 0.25, 0.3, 1.0))
-                local cWin = imgui.GetColorU32Vec4(imgui.ImVec4(0.1, 0.1, 0.12, 1.0))
-                local cText = imgui.GetColorU32Vec4(imgui.ImVec4(0.7, 0.7, 0.7, 1.0))
-                
-                local fl = isCarTireBurst(car, 0); local rl = isCarTireBurst(car, 1)
-                local fr = isCarTireBurst(car, 2); local rr = isCarTireBurst(car, 3)
-                
-                local function tC(b) return b and cRed or cGreen end
-                
-                dl:AddRectFilled(imgui.ImVec2(cx - 30, cy - 60), imgui.ImVec2(cx + 30, cy + 60), cBody, 8.0)
-                dl:AddRect(imgui.ImVec2(cx - 30, cy - 60), imgui.ImVec2(cx + 30, cy + 60), imgui.GetColorU32Vec4(imgui.ImVec4(1,1,1,0.2)), 8.0, 0, 1.5)
-                dl:AddRectFilled(imgui.ImVec2(cx - 24, cy - 25), imgui.ImVec2(cx + 24, cy + 30), cWin, 4.0)
-                
-                dl:AddRectFilled(imgui.ImVec2(cx - 42, cy - 45), imgui.ImVec2(cx - 30, cy - 15), tC(fl), 4.0)
-                dl:AddRectFilled(imgui.ImVec2(cx + 30, cy - 45), imgui.ImVec2(cx + 42, cy - 15), tC(fr), 4.0)
-                dl:AddRectFilled(imgui.ImVec2(cx - 42, cy + 15), imgui.ImVec2(cx - 30, cy + 45), tC(rl), 4.0)
-                dl:AddRectFilled(imgui.ImVec2(cx + 30, cy + 15), imgui.ImVec2(cx + 42, cy + 45), tC(rr), 4.0)
-                
-                local eC = (hPercent > 0.5) and cGreen or ((hPercent > 0.25) and imgui.GetColorU32Vec4(imgui.ImVec4(0.9, 0.8, 0.2, 1.0)) or cRed)
-                dl:AddCircleFilled(imgui.ImVec2(cx, cy - 40), 6.0, eC)
-                
-                dl:AddLine(imgui.ImVec2(cx + 8, cy - 40), imgui.ImVec2(cx + 60, cy - 40), imgui.GetColorU32Vec4(imgui.ImVec4(1,1,1,0.3)), 1.0)
-                dl:AddText(imgui.ImVec2(cx + 65, cy - 47), cText, "Motor")
-                
-                dl:AddLine(imgui.ImVec2(cx + 42, cy - 30), imgui.ImVec2(cx + 60, cy - 10), imgui.GetColorU32Vec4(imgui.ImVec4(1,1,1,0.3)), 1.0)
-                dl:AddText(imgui.ImVec2(cx + 65, cy - 17), cText, "On Lastik")
-                
-                dl:AddLine(imgui.ImVec2(cx + 42, cy + 30), imgui.ImVec2(cx + 60, cy + 10), imgui.GetColorU32Vec4(imgui.ImVec4(1,1,1,0.3)), 1.0)
-                dl:AddText(imgui.ImVec2(cx + 65, cy + 3), cText, "Arka Lastik")
-                
-                imgui.Dummy(imgui.ImVec2(0, 160))
-                imgui.Columns(1)
-                
-                imgui.EndChild()
+                if isCharInAnyCar(PLAYER_PED) then
+                    imgui.TextColored(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0), "ARAC ICI KONTROLLER")
+                    imgui.Separator()
+                    imgui.Dummy(imgui.ImVec2(0, 5))
+                    
+                    local car = storeCarCharIsInNoSave(PLAYER_PED)
+                    local hPercent = math.max(0, math.min(1, (getCarHealth(car) - 250) / 750))
+                    
+                    imgui.BeginChild("AracIciSolCol", imgui.ImVec2(340, 0), false)
+                    imgui.TextColored(imgui.ImVec4(0.85, 0.85, 0.85, 1.0), "Arac Genel Durumu:")
+                    imgui.ProgressBar(hPercent, imgui.ImVec2(310, 25), string.format("Saglamlik: %d%%", math.floor(hPercent * 100)))
+                    imgui.Dummy(imgui.ImVec2(0, 5))
+                    
+                    if AnimButton("Motoru Calistir / Durdur [ Y ]", imgui.ImVec2(310, 35)) then table.insert(tusKuyrugu, vkeys.VK_Y) end 
+                    if AnimButton("Farlari Yak / Sondur [ N ]", imgui.ImVec2(310, 35)) then table.insert(tusKuyrugu, vkeys.VK_N) end 
+                    if AnimButton("Kapilari Iceriden Kilitle", imgui.ImVec2(310, 35)) then sampSendChat("/arac kilit") end
+                    imgui.Dummy(imgui.ImVec2(0, 5))
+                    if imgui.Checkbox("Kamerayi Sabitle (Sarsinti Engelle)", kameraSabitleAktif) then ayarlariKaydet() end
+
+                    imgui.Dummy(imgui.ImVec2(0, 10))
+                    imgui.TextColored(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0), "HIZ SABITLEYICI (CRUISE)")
+                    imgui.Separator()
+                    imgui.Dummy(imgui.ImVec2(0, 5))
+                    imgui.TextColored(imgui.ImVec4(0.85, 0.85, 0.85, 1.0), "Durum: ")
+                    imgui.SameLine()
+                    
+                    if isCruiseActive then imgui.TextColored(imgui.ImVec4(0.4, 1.0, 0.4, 1.0), "Aktif (" .. math.floor(cruiseSpeed * 3.6) .. " km/h)")
+                    else imgui.TextColored(imgui.ImVec4(1.0, 0.4, 0.4, 1.0), "Devre Disi") end
+                    
+                    imgui.TextColored(imgui.ImVec4(0.85, 0.85, 0.85, 1.0), "Tetikleyici: ")
+                    imgui.SameLine()
+                    if AnimButton(bekleCruiseTusu and "Basin..." or getKeyName(seciliCruiseKisayol[0]), imgui.ImVec2(100, 30)) then
+                        bekleCruiseTusu = true; beklePanelTusu = false; bekleMouseTusu = false; bekleSinematikTusu = false; bekleScoreboardTusu = false; bindGecikmesi = os.clock() + 0.2
+                    end
+                    imgui.EndChild()
+                    
+                    imgui.SameLine(0, 15)
+                    
+                    imgui.BeginChild("AracIciSagCol", imgui.ImVec2(0, 0), false)
+                    imgui.TextColored(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0), "HASAR SENSORU")
+                    imgui.Separator()
+                    
+                    local dl = imgui.GetWindowDrawList()
+                    local p = imgui.GetCursorScreenPos()
+                    local cx, cy = p.x + 80, p.y + 70
+                    
+                    local cGreen = imgui.GetColorU32Vec4(imgui.ImVec4(0.4, 1.0, 0.4, 1.0))
+                    local cRed = imgui.GetColorU32Vec4(imgui.ImVec4(1.0, 0.4, 0.4, 1.0))
+                    local cBody = imgui.GetColorU32Vec4(imgui.ImVec4(0.15, 0.15, 0.15, 1.0))
+                    local cWin = imgui.GetColorU32Vec4(imgui.ImVec4(0.08, 0.08, 0.08, 1.0))
+                    local cText = imgui.GetColorU32Vec4(imgui.ImVec4(0.85, 0.85, 0.85, 1.0))
+                    
+                    local fl = isCarTireBurst(car, 0)
+                    local rl = isCarTireBurst(car, 1)
+                    local fr = isCarTireBurst(car, 2)
+                    local rr = isCarTireBurst(car, 3)
+                    local function tC(b) return b and cRed or cGreen end
+                    
+                    dl:AddRectFilled(imgui.ImVec2(cx - 30, cy - 60), imgui.ImVec2(cx + 30, cy + 60), cBody, 8.0)
+                    dl:AddRectFilled(imgui.ImVec2(cx - 24, cy - 25), imgui.ImVec2(cx + 24, cy + 30), cWin, 4.0)
+                    
+                    dl:AddRectFilled(imgui.ImVec2(cx - 42, cy - 45), imgui.ImVec2(cx - 30, cy - 15), tC(fl), 4.0)
+                    dl:AddRectFilled(imgui.ImVec2(cx + 30, cy - 45), imgui.ImVec2(cx + 42, cy - 15), tC(fr), 4.0)
+                    dl:AddRectFilled(imgui.ImVec2(cx - 42, cy + 15), imgui.ImVec2(cx - 30, cy + 45), tC(rl), 4.0)
+                    dl:AddRectFilled(imgui.ImVec2(cx + 30, cy + 15), imgui.ImVec2(cx + 42, cy + 45), tC(rr), 4.0)
+                    
+                    local eC = (hPercent > 0.5) and cGreen or ((hPercent > 0.25) and imgui.GetColorU32Vec4(imgui.ImVec4(1.0, 1.0, 0.4, 1.0)) or cRed)
+                    dl:AddCircleFilled(imgui.ImVec2(cx, cy - 40), 6.0, eC)
+                    
+                    dl:AddLine(imgui.ImVec2(cx + 8, cy - 40), imgui.ImVec2(cx + 60, cy - 40), imgui.GetColorU32Vec4(imgui.ImVec4(1,1,1,0.2)), 1.0)
+                    dl:AddText(imgui.ImVec2(cx + 65, cy - 47), cText, "Motor")
+                    dl:AddLine(imgui.ImVec2(cx + 42, cy - 30), imgui.ImVec2(cx + 60, cy - 10), imgui.GetColorU32Vec4(imgui.ImVec4(1,1,1,0.2)), 1.0)
+                    dl:AddText(imgui.ImVec2(cx + 65, cy - 17), cText, "On Lastik")
+                    dl:AddLine(imgui.ImVec2(cx + 42, cy + 30), imgui.ImVec2(cx + 60, cy + 10), imgui.GetColorU32Vec4(imgui.ImVec4(1,1,1,0.2)), 1.0)
+                    dl:AddText(imgui.ImVec2(cx + 65, cy + 3), cText, "Arka Lastik")
+                    
+                    imgui.Dummy(imgui.ImVec2(0, 160))
+                    imgui.EndChild()
+                else
+                    imgui.TextColored(imgui.ImVec4(0.85, 0.85, 0.85, 1.0), "Arac ici ayarlari gormek icin bir aracta olmalisiniz.")
+                end
             else
-                imgui.TextColored(imgui.ImVec4(0.9, 0.3, 0.3, 1.0), "Arac ici ayarlarini kullanabilmek icin bir aracta olmalisiniz.")
+                imgui.TextColored(imgui.ImVec4(1.0, 0.4, 0.4, 1.0), "Oyuna baglanmadan islem yapamazsiniz.")
             end
 
         elseif seciliSekme[0] == 7 then
-            imgui.BeginChild("RPAyarKutusu", imgui.ImVec2(0, 195), true)
-            imgui.TextColored(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0), "Rol Komutlarini Ayarla")
+            imgui.TextColored(imgui.ImVec4(1.0, 1.0, 1.0, 1.0), "ROL KOMUTLARI")
             BilgiKutusu("Yakindaki oyuncularla hizli etkilesim kurmanizi saglar. Formatta {isim} ve {id} degiskenleri kullanilabilir.")
-            imgui.Dummy(imgui.ImVec2(0, 2))
+            imgui.Dummy(imgui.ImVec2(0, 10))
             
             imgui.PushItemWidth(140)
-            imgui.InputText("Isim", inputRpIsim, 256)
+            imgui.InputText("Buton Adi", inputRpIsim, 256)
             imgui.SameLine()
             imgui.PushItemWidth(250)
             imgui.InputText("Komut", inputRpKomut, 256)
             imgui.PopItemWidth()
             imgui.PopItemWidth()
-            
             imgui.SameLine()
+            
             if duzenleRpIndex == 0 then
-                if AnimButton("Ekle##rpekle", imgui.ImVec2(75, 27)) then
+                if AnimButton("EKLE", imgui.ImVec2(80, 30)) then
                     local isimStr, komutStr = ffi.string(inputRpIsim), ffi.string(inputRpKomut)
                     if isimStr ~= "" and komutStr ~= "" then
                         table.insert(rpButonlar, {isim = isimStr, komut = komutStr})
-                        ayarlariKaydet(); ffi.copy(inputRpIsim, ""); ffi.copy(inputRpKomut, "")
+                        ayarlariKaydet()
+                        ffi.copy(inputRpIsim, "")
+                        ffi.copy(inputRpKomut, "")
                     end
                 end
             else
-                imgui.PushStyleColor(imgui.Col.Button, imgui.ImVec4(0.2, 0.6, 0.2, 1.0))
-                if AnimButton("Guncelle", imgui.ImVec2(75, 27)) then
+                if AnimButton("KAYDET", imgui.ImVec2(80, 30)) then
                     local isimStr, komutStr = ffi.string(inputRpIsim), ffi.string(inputRpKomut)
                     if isimStr ~= "" and komutStr ~= "" then
-                        rpButonlar[duzenleRpIndex].isim = isimStr; rpButonlar[duzenleRpIndex].komut = komutStr
-                        ayarlariKaydet(); duzenleRpIndex = 0; ffi.copy(inputRpIsim, ""); ffi.copy(inputRpKomut, "")
+                        rpButonlar[duzenleRpIndex].isim = isimStr
+                        rpButonlar[duzenleRpIndex].komut = komutStr
+                        ayarlariKaydet()
+                        duzenleRpIndex = 0
+                        ffi.copy(inputRpIsim, "")
+                        ffi.copy(inputRpKomut, "")
                     end
                 end
-                imgui.PopStyleColor()
             end
             
+            imgui.Dummy(imgui.ImVec2(0, 15))
+            imgui.TextColored(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0), "KAYITLI KOMUTLAR")
             imgui.Separator()
-            if #rpButonlar == 0 then imgui.TextColored(imgui.ImVec4(0.8, 0.3, 0.3, 1.0), "Henuz bir veri eklenmemis.")
+            imgui.Dummy(imgui.ImVec2(0, 5))
+            
+            if #rpButonlar == 0 then
+                imgui.TextColored(imgui.ImVec4(0.85, 0.85, 0.85, 1.0), "Henuz bir veri eklenmemis.")
             else
                 for i, val in ipairs(rpButonlar) do
-                    imgui.TextColored(imgui.ImVec4(0.4, 0.8, 1.0, 1.0), val.isim)
+                    imgui.TextColored(imgui.ImVec4(1.0, 1.0, 1.0, 1.0), val.isim)
                     imgui.SameLine(140)
                     local kisaKomut = val.komut
                     if #kisaKomut > 40 then kisaKomut = kisaKomut:sub(1, 40) .. "..." end
-                    imgui.Text(kisaKomut)
+                    imgui.TextColored(imgui.ImVec4(0.85, 0.85, 0.85, 1.0), kisaKomut)
                     
-                    imgui.SameLine(imgui.GetWindowContentRegionWidth() - 95) 
-                    imgui.PushStyleColor(imgui.Col.Button, imgui.ImVec4(0.2, 0.6, 0.2, 1.0))
-                    if AnimButton("Duzenle##rpduz"..i, imgui.ImVec2(65, 22)) then
-                        duzenleRpIndex = i; ffi.copy(inputRpIsim, val.isim); ffi.copy(inputRpKomut, val.komut)
+                    imgui.SameLine(imgui.GetWindowContentRegionWidth() - 115) 
+                    if AnimButton("Duzenle##rpduz"..i, imgui.ImVec2(75, 28)) then
+                        duzenleRpIndex = i
+                        ffi.copy(inputRpIsim, val.isim)
+                        ffi.copy(inputRpKomut, val.komut)
                     end
-                    imgui.PopStyleColor()
                     imgui.SameLine()
-                    imgui.PushStyleColor(imgui.Col.Button, imgui.ImVec4(0.8, 0.2, 0.2, 1.0))
-                    if AnimButton("X##rpsil"..i, imgui.ImVec2(25, 22)) then
-                        if duzenleRpIndex == i then duzenleRpIndex = 0; ffi.copy(inputRpIsim, ""); ffi.copy(inputRpKomut, "") end
-                        table.remove(rpButonlar, i); ayarlariKaydet()
+                    if AnimButton("X##rpsil"..i, imgui.ImVec2(30, 28)) then
+                        if duzenleRpIndex == i then
+                            duzenleRpIndex = 0
+                            ffi.copy(inputRpIsim, "")
+                            ffi.copy(inputRpKomut, "")
+                        end
+                        table.remove(rpButonlar, i)
+                        ayarlariKaydet()
                     end
-                    imgui.PopStyleColor()
+                    imgui.Dummy(imgui.ImVec2(0, 2))
                 end
             end
-            imgui.EndChild()
             
-            imgui.Text("Menzildeki Oyuncular (15 Metre Capi)")
+            imgui.Dummy(imgui.ImVec2(0, 20))
+            imgui.TextColored(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0), "MENZILDEKI OYUNCULAR (15M)")
             imgui.Separator()
-            imgui.BeginChild("RP_Listesi", imgui.ImVec2(0, 0), true)
-            local myX, myY, myZ = getCharCoordinates(PLAYER_PED)
-            local oyuncuBulundu = false
-            for _, ped in ipairs(getAllChars()) do
-                if ped ~= PLAYER_PED then
-                    local isPlayer, id = sampGetPlayerIdByCharHandle(ped)
-                    if isPlayer then
-                        local px, py, pz = getCharCoordinates(ped)
-                        local dist = getDistanceBetweenCoords3d(myX, myY, myZ, px, py, pz)
-                        if dist <= 15.0 then
-                            oyuncuBulundu = true
-                            local name = sampGetPlayerNickname(id):gsub("_", " ")
-                            imgui.TextColored(imgui.ImVec4(0.4, 0.8, 1.0, 1.0), string.format("[%d] %s", id, name))
-                            imgui.TextColored(imgui.ImVec4(0.6, 0.6, 0.6, 1.0), string.format("Mesafe: %.1f metre", dist))
-                            
-                            for i, b in ipairs(rpButonlar) do
-                                if AnimButton(b.isim .. "##b"..id.."_"..i, imgui.ImVec2(130, 30)) then
-                                    local finalCmd = b.komut:gsub("{isim}", name):gsub("{id}", tostring(id))
-                                    sampSendChat(u8_decode(finalCmd))
+            imgui.Dummy(imgui.ImVec2(0, 5))
+            
+            if sampIsLocalPlayerSpawned() and doesCharExist(PLAYER_PED) then
+                local myX, myY, myZ = getCharCoordinates(PLAYER_PED)
+                local oyuncuBulundu = false
+                for _, ped in ipairs(getAllChars()) do
+                    if ped ~= PLAYER_PED then
+                        local isPlayer, id = sampGetPlayerIdByCharHandle(ped)
+                        if isPlayer then
+                            local px, py, pz = getCharCoordinates(ped)
+                            local dist = getDistanceBetweenCoords3d(myX, myY, myZ, px, py, pz)
+                            if dist <= 15.0 then
+                                oyuncuBulundu = true
+                                local name = sampGetPlayerNickname(id):gsub("_", " ")
+                                imgui.TextColored(imgui.ImVec4(1.0, 1.0, 1.0, 1.0), string.format("[%d] %s", id, name))
+                                imgui.SameLine(250)
+                                imgui.TextColored(imgui.ImVec4(0.85, 0.85, 0.85, 1.0), string.format("%.1f metre", dist))
+                                imgui.Dummy(imgui.ImVec2(0, 5))
+                                
+                                for i, b in ipairs(rpButonlar) do
+                                    if AnimButton(b.isim .. "##b"..id.."_"..i, imgui.ImVec2(120, 28)) then
+                                        local finalCmd = b.komut:gsub("{isim}", name):gsub("{id}", tostring(id))
+                                        sampSendChat(u8_decode(finalCmd))
+                                    end
+                                    if i % 5 ~= 0 and i ~= #rpButonlar then imgui.SameLine() end
                                 end
-                                if i % 4 ~= 0 and i ~= #rpButonlar then imgui.SameLine() end
+                                if #rpButonlar > 0 then imgui.Dummy(imgui.ImVec2(0, 10)) end
                             end
-                            if #rpButonlar > 0 then imgui.Dummy(imgui.ImVec2(0, 5)) end
-                            imgui.Separator()
                         end
                     end
                 end
+                if not oyuncuBulundu then imgui.TextColored(imgui.ImVec4(0.85, 0.85, 0.85, 1.0), "Cevrede etkilesime girilecek oyuncu bulunamadi.") end
+            else
+                imgui.TextColored(imgui.ImVec4(1.0, 0.4, 0.4, 1.0), "Oyuna baglanmadan islem yapamazsiniz.")
             end
-            if not oyuncuBulundu then imgui.TextColored(imgui.ImVec4(0.8, 0.3, 0.3, 1.0), "Cevrede islem yapilabilecek oyuncu bulunamadi.") end
-            imgui.EndChild()
 
         elseif seciliSekme[0] == 8 then
-            imgui.TextColored(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0), "Animasyon Studyosu")
-            BilgiKutusu("Kayitli animasyonlari tek tikla uygulamanizi saglar. Veriler harici metin dosyasinda saklanir.")
-            imgui.Dummy(imgui.ImVec2(0, 5))
+            imgui.TextColored(imgui.ImVec4(1.0, 1.0, 1.0, 1.0), "ANIMASYONLAR")
+            BilgiKutusu("Kayitli animasyonlari tek tikla uygulamanizi saglar.")
+            imgui.Dummy(imgui.ImVec2(0, 10))
             
             imgui.PushItemWidth(180)
             imgui.InputText("Animasyon Adi", inputAnimIsim, 256)
-            imgui.SameLine(320)
+            imgui.SameLine()
+            imgui.PushItemWidth(300)
             imgui.InputText("Komut (/ ile)", inputAnimKomut, 256)
             imgui.PopItemWidth()
+            imgui.SameLine()
             
             if duzenleAnimIndex == 0 then
-                if AnimButton("Listeye Ekle##animEkle", imgui.ImVec2(-1, 35)) then
+                if AnimButton("EKLE##animEkle", imgui.ImVec2(80, 30)) then
                     local isimStr, komutStr = ffi.string(inputAnimIsim), ffi.string(inputAnimKomut)
                     if isimStr ~= "" and komutStr ~= "" then
                         table.insert(animButonlar, {isim = isimStr, komut = komutStr})
-                        animasyonlariKaydet(); ffi.copy(inputAnimIsim, ""); ffi.copy(inputAnimKomut, "")
+                        animasyonlariKaydet()
+                        ffi.copy(inputAnimIsim, "")
+                        ffi.copy(inputAnimKomut, "")
                     end
                 end
             else
-                imgui.PushStyleColor(imgui.Col.Button, imgui.ImVec4(0.2, 0.6, 0.2, 1.0))
-                if AnimButton("Guncelle##animGuncelle", imgui.ImVec2(-1, 35)) then
+                if AnimButton("KAYDET##animGuncelle", imgui.ImVec2(80, 30)) then
                     local isimStr, komutStr = ffi.string(inputAnimIsim), ffi.string(inputAnimKomut)
                     if isimStr ~= "" and komutStr ~= "" then
-                        animButonlar[duzenleAnimIndex].isim = isimStr; animButonlar[duzenleAnimIndex].komut = komutStr
-                        animasyonlariKaydet(); duzenleAnimIndex = 0; ffi.copy(inputAnimIsim, ""); ffi.copy(inputAnimKomut, "")
+                        animButonlar[duzenleAnimIndex].isim = isimStr
+                        animButonlar[duzenleAnimIndex].komut = komutStr
+                        animasyonlariKaydet()
+                        duzenleAnimIndex = 0
+                        ffi.copy(inputAnimIsim, "")
+                        ffi.copy(inputAnimKomut, "")
                     end
-                end
-                imgui.PopStyleColor()
-            end
-            
-            imgui.Separator()
-            imgui.BeginChild("AnimKutu", imgui.ImVec2(0, 0), true)
-            
-            if #animButonlar == 0 then imgui.TextColored(imgui.ImVec4(0.8, 0.3, 0.3, 1.0), "Liste su an bos.")
-            else
-                for i, val in ipairs(animButonlar) do
-                    if AnimButton(val.isim .. "##btn_anim" .. i, imgui.ImVec2(440, 40)) then sampSendChat(u8_decode(val.komut)) end
-                    imgui.SameLine(imgui.GetWindowContentRegionWidth() - 110)
-                    
-                    imgui.PushStyleColor(imgui.Col.Button, imgui.ImVec4(0.2, 0.6, 0.2, 1.0))
-                    if AnimButton("Duzenle##animduz"..i, imgui.ImVec2(70, 40)) then
-                        duzenleAnimIndex = i; ffi.copy(inputAnimIsim, val.isim); ffi.copy(inputAnimKomut, val.komut)
-                    end
-                    imgui.PopStyleColor()
-                    imgui.SameLine()
-                    imgui.PushStyleColor(imgui.Col.Button, imgui.ImVec4(0.8, 0.2, 0.2, 1.0))
-                    if AnimButton("X##animsil" .. i, imgui.ImVec2(35, 40)) then
-                        if duzenleAnimIndex == i then duzenleAnimIndex = 0; ffi.copy(inputAnimIsim, ""); ffi.copy(inputAnimKomut, "") end
-                        table.remove(animButonlar, i); animasyonlariKaydet()
-                    end
-                    imgui.PopStyleColor()
                 end
             end
             
             imgui.Dummy(imgui.ImVec2(0, 15))
+            imgui.TextColored(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0), "KAYITLI ANIMASYONLAR")
             imgui.Separator()
-            imgui.PushStyleColor(imgui.Col.Button, imgui.ImVec4(0.8, 0.3, 0.3, 1.0))
-            if AnimButton("Tum Animasyonlari Durdur [ /dans ]", imgui.ImVec2(-1, 45)) then sampSendChat("/dans") end
-            imgui.PopStyleColor()
-            imgui.EndChild()
-
-        elseif seciliSekme[0] == 9 then
-            imgui.TextColored(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0), "Sahsi Not Defteri")
-            BilgiKutusu("Oyun ici alinan notlari SAMP_Ajanda.txt dosyasina kaydeder.")
             imgui.Dummy(imgui.ImVec2(0, 5))
             
-            imgui.PushStyleColor(imgui.Col.Button, imgui.ImVec4(0.2, 0.6, 0.2, 1.0))
-            if AnimButton("Degisiklikleri Kaydet", imgui.ImVec2(180, 30)) then ajandaKaydet() end
-            imgui.PopStyleColor()
+            if #animButonlar == 0 then
+                imgui.TextColored(imgui.ImVec4(0.85, 0.85, 0.85, 1.0), "Liste su an bos.")
+            else
+                for i, val in ipairs(animButonlar) do
+                    if AnimButton(val.isim .. "##btn_anim" .. i, imgui.ImVec2(440, 38)) then sampSendChat(u8_decode(val.komut)) end
+                    imgui.SameLine(imgui.GetWindowContentRegionWidth() - 115)
+                    
+                    if AnimButton("Duzenle##animduz"..i, imgui.ImVec2(75, 38)) then
+                        duzenleAnimIndex = i
+                        ffi.copy(inputAnimIsim, val.isim)
+                        ffi.copy(inputAnimKomut, val.komut)
+                    end
+                    imgui.SameLine()
+                    if AnimButton("X##animsil" .. i, imgui.ImVec2(30, 38)) then
+                        if duzenleAnimIndex == i then
+                            duzenleAnimIndex = 0
+                            ffi.copy(inputAnimIsim, "")
+                            ffi.copy(inputAnimKomut, "")
+                        end
+                        table.remove(animButonlar, i)
+                        animasyonlariKaydet()
+                    end
+                end
+            end
+            imgui.Dummy(imgui.ImVec2(0, 15))
+            if AnimButton("TUMUNU DURDUR [ /dans ]", imgui.ImVec2(-1, 40)) then sampSendChat("/dans") end
+
+        elseif seciliSekme[0] == 9 then
+            imgui.TextColored(imgui.ImVec4(1.0, 1.0, 1.0, 1.0), "NOT DEFTERI")
+            BilgiKutusu("Oyun ici alinan notlari dosyaniza kaydeder.")
+            imgui.Dummy(imgui.ImVec2(0, 10))
+            
+            if AnimButton("DEGISIKLIKLERI KAYDET", imgui.ImVec2(200, 35)) then ajandaKaydet() end
             imgui.SameLine()
-            imgui.TextColored(imgui.ImVec4(0.6, 0.6, 0.6, 1.0), "(Degisiklikleri kaydetmeyi unutmayiniz)")
-            imgui.Separator()
+            imgui.TextColored(imgui.ImVec4(0.85, 0.85, 0.85, 1.0), "(Otomatik kaydetmez, butona basiniz)")
+            imgui.Dummy(imgui.ImVec2(0, 10))
             imgui.InputTextMultiline("##ajandainput", ajandaBuffer, ffi.sizeof(ajandaBuffer), imgui.ImVec2(-1, 500))
 
         elseif seciliSekme[0] == 10 then
-            imgui.TextColored(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0), "Hesaplama Yonetimi")
+            imgui.TextColored(imgui.ImVec4(1.0, 1.0, 1.0, 1.0), "HESAP MAKINESI")
             BilgiKutusu("Oyun ici temel matematiksel islemleri gerceklestirir.")
-            imgui.Dummy(imgui.ImVec2(0, 5))
+            imgui.Dummy(imgui.ImVec2(0, 15))
             
-            imgui.BeginChild("CalcKutu", imgui.ImVec2(0, 250), true)
-            
-            imgui.TextColored(imgui.ImVec4(0.6, 0.6, 0.6, 1.0), "Guncel Sonuc:")
-            
+            imgui.TextColored(imgui.ImVec4(0.85, 0.85, 0.85, 1.0), "Guncel Sonuc:")
             if fontComboCount > 0 and mevcutFontPointers[seciliFontIndex[0] + 1] then imgui.PushFont(mevcutFontPointers[seciliFontIndex[0] + 1]) end
-            imgui.TextColored(imgui.ImVec4(0.3, 0.9, 0.4, 1.0), string.format("$ %s", formatNumber(math.floor(calcSonuc))))
+            imgui.TextColored(imgui.ImVec4(0.4, 1.0, 0.4, 1.0), string.format("$ %s", formatNumber(math.floor(calcSonuc))))
             if fontComboCount > 0 and mevcutFontPointers[seciliFontIndex[0] + 1] then imgui.PopFont() end
             
-            imgui.Dummy(imgui.ImVec2(0, 15))
-            imgui.Separator()
-            imgui.Dummy(imgui.ImVec2(0, 10))
-            
+            imgui.Dummy(imgui.ImVec2(0, 20))
             imgui.PushItemWidth(250)
             imgui.InputInt("1. Deger", calcMiktar1)
             imgui.InputInt("2. Deger", calcMiktar2)
             imgui.PopItemWidth()
-            
             imgui.Dummy(imgui.ImVec2(0, 15))
             
-            if AnimButton("Topla (+)", imgui.ImVec2(110, 35)) then calcSonuc = calcMiktar1[0] + calcMiktar2[0] end
+            if AnimButton("Topla (+)", imgui.ImVec2(110, 38)) then calcSonuc = calcMiktar1[0] + calcMiktar2[0] end
             imgui.SameLine()
-            if AnimButton("Cikar (-)", imgui.ImVec2(110, 35)) then calcSonuc = calcMiktar1[0] - calcMiktar2[0] end
+            if AnimButton("Cikar (-)", imgui.ImVec2(110, 38)) then calcSonuc = calcMiktar1[0] - calcMiktar2[0] end
             imgui.SameLine()
-            if AnimButton("Carp (x)", imgui.ImVec2(110, 35)) then calcSonuc = calcMiktar1[0] * calcMiktar2[0] end
+            if AnimButton("Carp (x)", imgui.ImVec2(110, 38)) then calcSonuc = calcMiktar1[0] * calcMiktar2[0] end
             imgui.SameLine()
-            if AnimButton("Bol (/)", imgui.ImVec2(110, 35)) then 
-                if calcMiktar2[0] ~= 0 then calcSonuc = calcMiktar1[0] / calcMiktar2[0] else calcSonuc = 0 end 
-            end
-            imgui.EndChild()
+            if AnimButton("Bol (/)", imgui.ImVec2(110, 38)) then if calcMiktar2[0] ~= 0 then calcSonuc = calcMiktar1[0] / calcMiktar2[0] else calcSonuc = 0 end end
 
         elseif seciliSekme[0] == 11 then
-            imgui.TextColored(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0), "Atmosfer ve Zaman Ayarlari")
+            imgui.TextColored(imgui.ImVec4(1.0, 1.0, 1.0, 1.0), "ATMOSFER VE ZAMAN")
             BilgiKutusu("Gorus mesafesi, saat ve hava durumu gibi yerel cevre ayarlarini degistirir.")
+            imgui.Dummy(imgui.ImVec2(0, 15))
+            
+            imgui.TextColored(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0), "GORUS MESAFESI (DRAW DISTANCE)")
+            imgui.Separator()
             imgui.Dummy(imgui.ImVec2(0, 5))
-            
-            imgui.BeginChild("AtmoKutu", imgui.ImVec2(0, 100), true)
-            imgui.TextColored(imgui.ImVec4(0.4, 0.8, 1.0, 1.0), "Gorus Mesafesi (Draw Distance)")
-            
-            if AnimButton("Performans Modu (FPS)", imgui.ImVec2(180, 35)) then
+            if AnimButton("Performans Modu (FPS)", imgui.ImVec2(200, 35)) then
                 ffi.cast("float*", 0x8DCE38)[0] = 300.0
                 sampAddChatMessage("{4A90E2}[Sistem] {FFFFFF}Gorus mesafesi performans modu icin dusuruldu.", -1)
             end
             imgui.SameLine()
-            if AnimButton("Ultra Gorus (SS Modu)", imgui.ImVec2(180, 35)) then
+            if AnimButton("Ultra Gorus (SS Modu)", imgui.ImVec2(200, 35)) then
                 ffi.cast("float*", 0x8DCE38)[0] = 3000.0
                 forceWeatherNow(1) 
                 sampAddChatMessage("{4A90E2}[Sistem] {FFFFFF}Gorus mesafesi maksimum seviyeye cikarildi.", -1)
             end
             imgui.SameLine()
-            imgui.PushStyleColor(imgui.Col.Button, imgui.ImVec4(0.8, 0.2, 0.2, 1.0))
-            if AnimButton("Varsayilana Don", imgui.ImVec2(-1, 35)) then
+            if AnimButton("Varsayilana Don", imgui.ImVec2(150, 35)) then
                 ffi.cast("float*", 0x8DCE38)[0] = 800.0
                 sampAddChatMessage("{4A90E2}[Sistem] {FFFFFF}Gorus mesafesi varsayilan degere donduruldu.", -1)
             end
-            imgui.PopStyleColor()
-            imgui.EndChild()
             
-            imgui.Dummy(imgui.ImVec2(0, 10))
+            imgui.Dummy(imgui.ImVec2(0, 20))
             
-            imgui.BeginChild("ZamanKutu", imgui.ImVec2(0, 0), true)
-            
-            imgui.TextColored(imgui.ImVec4(0.9, 0.8, 0.2, 1.0), "Zaman Birimi Ayari")
+            imgui.TextColored(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0), "ZAMAN & SAAT AYARI")
+            imgui.Separator()
+            imgui.Dummy(imgui.ImVec2(0, 5))
             imgui.PushItemWidth(350)
             imgui.SliderInt("Istenilen Saat", seciliSaat, 0, 23)
             imgui.PopItemWidth()
-            
+            imgui.Dummy(imgui.ImVec2(0, 5))
             if AnimButton("Zamani Sabitle", imgui.ImVec2(200, 35)) then
                 g_SabitZaman = seciliSaat[0]
                 patch_samp_time_set(true)
@@ -1598,242 +1981,243 @@ local newFrame = imgui.OnFrame(
                 sampAddChatMessage("{4A90E2}[Sistem] {FFFFFF}Zaman ayari sunucu ile senkronize edildi.", -1)
             end
             
-            imgui.Dummy(imgui.ImVec2(0, 15))
+            imgui.Dummy(imgui.ImVec2(0, 20))
+            imgui.TextColored(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0), "HAVA DURUMU MODELI")
             imgui.Separator()
-            imgui.Dummy(imgui.ImVec2(0, 15))
-            
-            imgui.TextColored(imgui.ImVec4(0.4, 0.8, 1.0, 1.0), "Hava Durumu Modeli")
+            imgui.Dummy(imgui.ImVec2(0, 5))
             imgui.PushItemWidth(350)
             imgui.Combo("Atmosfer Secimi", seciliHava, havaDurumuItems, #havaDurumuIsimleri)
             imgui.PopItemWidth()
-            
-            if AnimButton("Hava Durumunu Uygula", imgui.ImVec2(200, 35)) then
+            imgui.Dummy(imgui.ImVec2(0, 5))
+            if AnimButton("Uygula", imgui.ImVec2(200, 35)) then
                 local hedefID = havaDurumuIDs[seciliHava[0] + 1]
                 forceWeatherNow(hedefID)
                 sampAddChatMessage("{4A90E2}[Sistem] {FFFFFF}Hava durumu basariyla degistirildi.", -1)
             end
-            imgui.EndChild()
 
         elseif seciliSekme[0] == 12 then
-            imgui.TextColored(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0), "Blackjack & Zar Asistani")
+            imgui.TextColored(imgui.ImVec4(1.0, 1.0, 1.0, 1.0), "BLACKJACK & ZAR ASISTANI")
             BilgiKutusu("Sohbetteki zar verilerini okuyarak oyuncu puanlarini listeler ve 21'i gecme riskini hesaplar.")
-            imgui.Dummy(imgui.ImVec2(0, 5))
+            imgui.Dummy(imgui.ImVec2(0, 15))
             
             if AnimButton("Cift Zar At (/zar cift)", imgui.ImVec2(180, 35)) then sampSendChat("/zar cift") end
             imgui.SameLine()
             if AnimButton("Tek Zar At (/zar tek)", imgui.ImVec2(180, 35)) then sampSendChat("/zar tek") end
             imgui.SameLine()
-            imgui.PushStyleColor(imgui.Col.Button, imgui.ImVec4(0.8, 0.3, 0.3, 1.0))
-            if AnimButton("Verileri Temizle (Yeni El)", imgui.ImVec2(-1, 35)) then bjPlayers = {}; bjData = {} end
-            imgui.PopStyleColor()
-            
-            imgui.Dummy(imgui.ImVec2(0, 10))
-            imgui.BeginChild("ZarMasasi", imgui.ImVec2(0, 0), true)
+            if AnimButton("Verileri Temizle", imgui.ImVec2(150, 35)) then bjPlayers = {}; bjData = {} end
+            imgui.Dummy(imgui.ImVec2(0, 15))
             
             if #bjPlayers == 0 then
-                imgui.TextColored(imgui.ImVec4(0.6, 0.6, 0.6, 1.0), "Henuz zar atilmadi, veriler bekleniyor...")
+                imgui.TextColored(imgui.ImVec4(0.85, 0.85, 0.85, 1.0), "Henuz zar atilmadi, veriler bekleniyor...")
             else
                 for i, pName in ipairs(bjPlayers) do
                     local data = bjData[pName]
-                    imgui.PushStyleColor(imgui.Col.ChildBg, imgui.ImVec4(0.12, 0.12, 0.14, 0.8))
-                    imgui.BeginChild("kisi_"..i, imgui.ImVec2(0, 120), true)
+                    imgui.PushStyleColor(imgui.Col.ChildBg, imgui.ImVec4(0.12, 0.12, 0.12, 1.0))
+                    imgui.BeginChild("kisi_"..i, imgui.ImVec2(0, 130), false)
                     
                     imgui.TextColored(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0), "Oyuncu: " .. pName)
-                    
-                    imgui.SameLine(imgui.GetWindowContentRegionWidth() - 90)
-                    imgui.PushStyleColor(imgui.Col.Button, imgui.ImVec4(0.8, 0.2, 0.2, 1.0))
-                    if AnimButton("Sifirla##" .. i, imgui.ImVec2(80, 25)) then
+                    imgui.SameLine(imgui.GetWindowContentRegionWidth() - 60)
+                    if AnimButton("Sifirla##" .. i, imgui.ImVec2(60, 24)) then
                         bjData[pName] = nil
                         table.remove(bjPlayers, i)
                     end
-                    imgui.PopStyleColor()
-                    
                     imgui.Separator()
                     
-                    imgui.TextColored(imgui.ImVec4(0.9, 0.9, 0.9, 1.0), "Guncel Puan: ")
+                    imgui.TextColored(imgui.ImVec4(0.85, 0.85, 0.85, 1.0), "Guncel Puan: ")
                     imgui.SameLine()
                     
-                    local cScore = imgui.ImVec4(0.3, 0.9, 0.4, 1.0)
+                    local cScore = imgui.ImVec4(0.4, 1.0, 0.4, 1.0)
                     local durumMetni = "GUVENLI BOLGE"
                     if data.toplam == 21 then 
-                        cScore = imgui.ImVec4(0.9, 0.8, 0.2, 1.0)
+                        cScore = imgui.ImVec4(1.0, 0.8, 0.2, 1.0)
                         durumMetni = "BLACKJACK MUKEMMEL"
                     elseif data.toplam > 21 then 
-                        cScore = imgui.ImVec4(0.9, 0.3, 0.3, 1.0) 
-                        durumMetni = "LIMIT ASIMI (Busted)"
-                    elseif data.toplam >= 17 then
-                        cScore = imgui.ImVec4(0.9, 0.8, 0.2, 1.0)
+                        cScore = imgui.ImVec4(1.0, 0.4, 0.4, 1.0) 
+                        durumMetni = "LIMIT ASIMI"
+                    elseif data.toplam >= 17 then 
+                        cScore = imgui.ImVec4(1.0, 0.8, 0.2, 1.0)
                         durumMetni = "RISKLI BOLGE"
                     end
-                    
                     imgui.TextColored(cScore, tostring(data.toplam) .. " [" .. durumMetni .. "]")
                     
                     local riskTek = getRiskTekZar(data.toplam)
                     local riskCift = getRiskCiftZar(data.toplam)
                     
-                    imgui.PushStyleColor(imgui.Col.PlotHistogram, imgui.ImVec4(0.8, 0.3, 0.3, 1.0))
-                    imgui.ProgressBar(riskTek / 100.0, imgui.ImVec2(300, 15), string.format("1 Zarda Puan Asimi Ihtimali: %%%.1f", riskTek))
+                    imgui.PushStyleColor(imgui.Col.PlotHistogram, imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0))
+                    imgui.ProgressBar(riskTek / 100.0, imgui.ImVec2(300, 18), string.format("1 Zarda Asim: %%%.1f", riskTek))
                     imgui.SameLine()
-                    imgui.ProgressBar(riskCift / 100.0, imgui.ImVec2(300, 15), string.format("2 Zarda Puan Asimi Ihtimali: %%%.1f", riskCift))
+                    imgui.ProgressBar(riskCift / 100.0, imgui.ImVec2(300, 18), string.format("2 Zarda Asim: %%%.1f", riskCift))
                     imgui.PopStyleColor()
                     
-                    imgui.TextColored(imgui.ImVec4(0.6, 0.6, 0.6, 1.0), string.format("Atilan Tekli Zar: %d adet | Yapilan Ciftli Atis: %d defa", data.tekli, data.ciftli))
-                    
+                    imgui.TextColored(imgui.ImVec4(0.85, 0.85, 0.85, 1.0), string.format("Atilan Tekli: %d | Yapilan Ciftli: %d", data.tekli, data.ciftli))
                     imgui.EndChild()
                     imgui.PopStyleColor()
                     imgui.Dummy(imgui.ImVec2(0, 5))
                 end
             end
-            imgui.EndChild()
 
         elseif seciliSekme[0] == 13 then
-            imgui.TextColored(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0), "Ozel Kisayollar ve Komutlar")
+            imgui.TextColored(imgui.ImVec4(1.0, 1.0, 1.0, 1.0), "OZEL KISAYOLLAR")
             BilgiKutusu("Ozel sunucu komutlarini butonlara atayarak hizli erisim saglar.")
-            imgui.Dummy(imgui.ImVec2(0, 5))
+            imgui.Dummy(imgui.ImVec2(0, 15))
             
             imgui.PushItemWidth(180)
             imgui.InputText("Buton Ismi", inputIsim, 256)
-            imgui.SameLine(320)
-            imgui.InputText("Calisacak Komut (/ ile)", inputKomut, 256)
+            imgui.SameLine()
+            imgui.PushItemWidth(300)
+            imgui.InputText("Komut (/ ile)", inputKomut, 256)
             imgui.PopItemWidth()
+            imgui.SameLine()
             
             if duzenleOzelIndex == 0 then
-                if AnimButton("Listeye Ekle", imgui.ImVec2(-1, 35)) then
+                if AnimButton("EKLE", imgui.ImVec2(80, 30)) then
                     local isimStr, komutStr = ffi.string(inputIsim), ffi.string(inputKomut)
                     if isimStr ~= "" and komutStr ~= "" then
                         table.insert(ozelButonlar, {isim = isimStr, komut = komutStr})
-                        ayarlariKaydet(); ffi.copy(inputIsim, ""); ffi.copy(inputKomut, "")
+                        ayarlariKaydet()
+                        ffi.copy(inputIsim, "")
+                        ffi.copy(inputKomut, "")
                     end
                 end
             else
-                imgui.PushStyleColor(imgui.Col.Button, imgui.ImVec4(0.2, 0.6, 0.2, 1.0))
-                if AnimButton("Guncelle", imgui.ImVec2(-1, 35)) then
+                if AnimButton("KAYDET", imgui.ImVec2(80, 30)) then
                     local isimStr, komutStr = ffi.string(inputIsim), ffi.string(inputKomut)
                     if isimStr ~= "" and komutStr ~= "" then
-                        ozelButonlar[duzenleOzelIndex].isim = isimStr; ozelButonlar[duzenleOzelIndex].komut = komutStr
-                        ayarlariKaydet(); duzenleOzelIndex = 0; ffi.copy(inputIsim, ""); ffi.copy(inputKomut, "")
+                        ozelButonlar[duzenleOzelIndex].isim = isimStr
+                        ozelButonlar[duzenleOzelIndex].komut = komutStr
+                        ayarlariKaydet()
+                        duzenleOzelIndex = 0
+                        ffi.copy(inputIsim, "")
+                        ffi.copy(inputKomut, "")
                     end
                 end
-                imgui.PopStyleColor()
             end
             
+            imgui.Dummy(imgui.ImVec2(0, 15))
+            imgui.TextColored(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0), "KAYITLI BUTONLAR")
             imgui.Separator()
-            imgui.BeginChild("ListeKutusu", imgui.ImVec2(0, 0), true) 
-            if #ozelButonlar == 0 then imgui.TextColored(imgui.ImVec4(0.8, 0.3, 0.3, 1.0), "Bu alan su an bos.")
+            imgui.Dummy(imgui.ImVec2(0, 5))
+            
+            if #ozelButonlar == 0 then
+                imgui.TextColored(imgui.ImVec4(0.85, 0.85, 0.85, 1.0), "Bu alan su an bos.")
             else
                 for i, val in ipairs(ozelButonlar) do
-                    if AnimButton(val.isim .. "##btn" .. i, imgui.ImVec2(440, 40)) then sampSendChat(u8_decode(val.komut)) end
-                    imgui.SameLine(imgui.GetWindowContentRegionWidth() - 110)
+                    if AnimButton(val.isim .. "##btn" .. i, imgui.ImVec2(440, 38)) then sampSendChat(u8_decode(val.komut)) end
+                    imgui.SameLine(imgui.GetWindowContentRegionWidth() - 115)
                     
-                    imgui.PushStyleColor(imgui.Col.Button, imgui.ImVec4(0.2, 0.6, 0.2, 1.0))
-                    if AnimButton("Duzenle##ozduz"..i, imgui.ImVec2(70, 40)) then
-                        duzenleOzelIndex = i; ffi.copy(inputIsim, val.isim); ffi.copy(inputKomut, val.komut)
+                    if AnimButton("Duzenle##ozduz"..i, imgui.ImVec2(75, 38)) then
+                        duzenleOzelIndex = i
+                        ffi.copy(inputIsim, val.isim)
+                        ffi.copy(inputKomut, val.komut)
                     end
-                    imgui.PopStyleColor()
                     imgui.SameLine()
-                    imgui.PushStyleColor(imgui.Col.Button, imgui.ImVec4(0.8, 0.2, 0.2, 1.0))
-                    if AnimButton("X##ozsil" .. i, imgui.ImVec2(35, 40)) then
-                        if duzenleOzelIndex == i then duzenleOzelIndex = 0; ffi.copy(inputIsim, ""); ffi.copy(inputKomut, "") end
-                        table.remove(ozelButonlar, i); ayarlariKaydet()
+                    if AnimButton("X##ozsil" .. i, imgui.ImVec2(30, 38)) then
+                        if duzenleOzelIndex == i then
+                            duzenleOzelIndex = 0
+                            ffi.copy(inputIsim, "")
+                            ffi.copy(inputKomut, "")
+                        end
+                        table.remove(ozelButonlar, i)
+                        ayarlariKaydet()
                     end
-                    imgui.PopStyleColor()
                 end
             end
-            imgui.EndChild()
 
         elseif seciliSekme[0] == 14 then 
-            imgui.TextColored(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0), "Moduller ve Ek Sistemler")
+            imgui.TextColored(imgui.ImVec4(1.0, 1.0, 1.0, 1.0), "MODULLER VE EK SISTEMLER")
+            imgui.Dummy(imgui.ImVec2(0, 15))
             
-            if imgui.CollapsingHeader("Yerel Sohbet Similasyonu (Sahte Mesaj)") then
-                BilgiKutusu("Yerel sohbete yalnizca sizin gorebileceginiz sahte metinler yazar. Ekran goruntusu almak icin idealdir.")
-                imgui.TextColored(imgui.ImVec4(0.6, 0.6, 0.6, 1.0), "Kullanim Formatı: /fchat [Renk Kodu] [Mesaj]")
-                imgui.TextColored(imgui.ImVec4(0.6, 0.6, 0.6, 1.0), "Ornek: /fchat C2A2DA * Kullanici sag elini kaldirir.")
+            if imgui.CollapsingHeader("Sinematik Cekim Modu") then
+                BilgiKutusu("Fare donuslerini pruzsuzlestirir, HUD gizler.")
+                imgui.TextColored(imgui.ImVec4(0.85, 0.85, 0.85, 1.0), "Tetikleme Tusu:")
+                if AnimButton(bekleSinematikTusu and "Basin..." or getKeyName(seciliSinematikKisayol[0]), imgui.ImVec2(150, 30)) then
+                    bekleSinematikTusu = true; beklePanelTusu = false; bekleMouseTusu = false; bekleCruiseTusu = false; bekleScoreboardTusu = false; bindGecikmesi = os.clock() + 0.2
+                end
+                if sinematikAktif then imgui.TextColored(imgui.ImVec4(0.4, 1.0, 0.4, 1.0), "Durum: AKTIF") else imgui.TextColored(imgui.ImVec4(1.0, 0.4, 0.4, 1.0), "Durum: KAPALI") end
+            end
+
+            if imgui.CollapsingHeader("Dinamik HUD") then
+                if imgui.Checkbox("Dinamik HUD'u Aktif Et", dinamikHudAktif) then ayarlariKaydet() end
+                if dinamikHudAktif[0] then
+                    imgui.SameLine(250)
+                    if imgui.Checkbox("Ekrana Sabitle", dinamikHudSabit) then ayarlariKaydet() end
+                end
             end
             
-            if imgui.CollapsingHeader("Sohbet İhbar Radari (Kelime Tarayici)") then
-                BilgiKutusu("Belirtilen anahtar kelimeler sohbette gectiginde sesli ve gorsel uyari verir.")
-                imgui.Dummy(imgui.ImVec2(0, 5))
-                imgui.PushItemWidth(250)
-                imgui.InputText("Kelime veya Terim", inputRadar, 128)
+            if imgui.CollapsingHeader("Hitmarker") then
+                if imgui.Checkbox("Hitmarker ve Sesi Aktif Et", hitmarkerAktif) then ayarlariKaydet() end
+            end
+            
+            if imgui.CollapsingHeader("Sahte Mesaj (Screenshot Modu)") then
+                imgui.TextColored(imgui.ImVec4(0.85, 0.85, 0.85, 1.0), "Kullanim: /fchat [Renk Kodu] [Mesaj]")
+            end
+            
+            if imgui.CollapsingHeader("Sohbet Radari") then
+                imgui.PushItemWidth(200)
+                imgui.InputText("Kelime", inputRadar, 128)
                 imgui.PopItemWidth()
                 imgui.SameLine()
-                if AnimButton("Listeye Ekle", imgui.ImVec2(100, 25)) then
+                if AnimButton("Ekle", imgui.ImVec2(80, 30)) then
                     local rStr = ffi.string(inputRadar)
                     if rStr ~= "" then table.insert(radarKelimeler, rStr); ayarlariKaydet(); ffi.copy(inputRadar, "") end
                 end
-                
-                imgui.BeginChild("RadarKutu", imgui.ImVec2(0, 100), true)
-                if #radarKelimeler == 0 then imgui.TextColored(imgui.ImVec4(0.5, 0.5, 0.5, 1.0), "Henuz veri eklenmemis.")
-                else
-                    for i, kelime in ipairs(radarKelimeler) do
-                        imgui.TextColored(imgui.ImVec4(0.9, 0.8, 0.2, 1.0), "- " .. kelime)
-                        imgui.SameLine(imgui.GetWindowContentRegionWidth() - 40)
-                        imgui.PushStyleColor(imgui.Col.Button, imgui.ImVec4(0.8, 0.2, 0.2, 1.0))
-                        if AnimButton("X##radarsil"..i, imgui.ImVec2(30, 20)) then table.remove(radarKelimeler, i); ayarlariKaydet() end
-                        imgui.PopStyleColor()
-                    end
+                for i, kelime in ipairs(radarKelimeler) do
+                    imgui.TextColored(imgui.ImVec4(1.0, 1.0, 0.4, 1.0), "- " .. kelime)
+                    imgui.SameLine(imgui.GetWindowContentRegionWidth() - 40)
+                    if AnimButton("X##radarsil"..i, imgui.ImVec2(30, 24)) then table.remove(radarKelimeler, i); ayarlariKaydet() end
                 end
-                imgui.EndChild()
             end
             
-            if imgui.CollapsingHeader("Mesaj Formatlayici (Telsiz/Aksan)") then
-                BilgiKutusu("Normal mesajlarin otomatik olarak telsiz kanalina iletilmesini veya baslarina belirli bir ek getirilmesini saglar.")
-                if imgui.Checkbox("Metin On Eki Modunu Aktif Et", aksanAktif) then ayarlariKaydet() end
-                imgui.PushItemWidth(200)
-                imgui.InputText("Uygulanacak On Ek", aksanMetin, 128)
+            if imgui.CollapsingHeader("Mesaj Formatlayici") then
+                if imgui.Checkbox("On Ek Modunu Aktif Et", aksanAktif) then ayarlariKaydet() end
+                imgui.PushItemWidth(150)
+                imgui.InputText("Ek", aksanMetin, 128)
                 imgui.PopItemWidth()
                 imgui.SameLine()
-                if AnimButton("Metni Kaydet", imgui.ImVec2(100, 25)) then ayarlariKaydet() end
-                imgui.Separator()
-                if imgui.Checkbox("Normal mesajlari direkt telsiz uzerinden (/t) gonder", telsizAktif) then ayarlariKaydet() end
+                if AnimButton("Kaydet##aksan", imgui.ImVec2(80, 30)) then ayarlariKaydet() end
+                if imgui.Checkbox("Normal mesajlari /t yap", telsizAktif) then ayarlariKaydet() end
             end
-
-            if imgui.CollapsingHeader("Otomatik Ozel Mesaj (PM) Yanitlayici") then
-                BilgiKutusu("Belirlenen anahtar kelime sohbette gectiginde ozel mesaj yoluyla otomatik yanit verir.")
+            
+            if imgui.CollapsingHeader("Oto PM") then
                 if imgui.Checkbox("Modulu Aktif Et", afkAktif) then ayarlariKaydet() end
                 imgui.PushItemWidth(150)
-                imgui.InputText("Tetikleyici Anahtar Kelime", afkTetikleyici, 128)
+                imgui.InputText("Kelime", afkTetikleyici, 128)
                 imgui.PopItemWidth()
-                imgui.PushItemWidth(350)
-                imgui.InputText("Iletilecek Otomatik Yanit", afkMesaj, 256)
+                imgui.PushItemWidth(300)
+                imgui.InputText("Yanit", afkMesaj, 256)
                 imgui.PopItemWidth()
-                if AnimButton("Verileri Kaydet", imgui.ImVec2(200, 30)) then ayarlariKaydet() end
+                if AnimButton("Kaydet##otopm", imgui.ImVec2(150, 30)) then ayarlariKaydet() end
             end
             
-            if imgui.CollapsingHeader("Favori Kisiler (Bildirim Radari)") then
-                BilgiKutusu("Listeye eklenen oyuncular belirlenen menzile girdiginde sesli uyari verir.")
+            if imgui.CollapsingHeader("3D Favori Radari") then
                 imgui.PushItemWidth(150)
-                imgui.InputText("Eklenecek Oyuncu", yeniKankaIsim, 128)
+                imgui.InputText("Oyuncu Ismi", yeniKankaIsim, 128)
                 imgui.PopItemWidth()
                 imgui.SameLine()
-                if AnimButton("Listeye Ekle", imgui.ImVec2(150, 25)) then
+                if AnimButton("Ekle##fav", imgui.ImVec2(80, 30)) then
                     local ism = ffi.string(yeniKankaIsim)
                     if ism ~= "" then favoritePlayers[ism] = true; ffi.copy(yeniKankaIsim, "") end
                 end
-                
-                imgui.BeginChild("FavKutu", imgui.ImVec2(0, 100), true)
                 for name, _ in pairs(favoritePlayers) do
-                    imgui.TextColored(imgui.ImVec4(0.9, 0.8, 0.2, 1.0), "⭐ " .. name)
+                    imgui.TextColored(imgui.ImVec4(1.0, 1.0, 0.4, 1.0), "⭐ " .. name)
                     imgui.SameLine(imgui.GetWindowContentRegionWidth() - 40)
-                    imgui.PushStyleColor(imgui.Col.Button, imgui.ImVec4(0.8, 0.2, 0.2, 1.0))
-                    if AnimButton("X##favsil_"..name, imgui.ImVec2(30, 20)) then favoritePlayers[name] = nil end
-                    imgui.PopStyleColor()
+                    if AnimButton("X##favsil_"..name, imgui.ImVec2(30, 24)) then favoritePlayers[name] = nil end
                 end
-                imgui.EndChild()
             end
             
         elseif seciliSekme[0] == 15 then 
-            imgui.TextColored(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0), "Tema ve Gorunum Ayarlari")
-            BilgiKutusu("Arayuz temasini, renk paletini ve imlec stilini kisisellestirir.")
+            imgui.TextColored(imgui.ImVec4(1.0, 1.0, 1.0, 1.0), "TEMA VE GORUNUM (KaUI TASARIMI)")
+            BilgiKutusu("Arayuz renklerini ve arka planini kisisellestirebilirsiniz.")
+            imgui.Dummy(imgui.ImVec2(0, 15))
+            
+            if imgui.Checkbox("Gelismis Skor Tablosunu Aktif Et (TAB)", ozelScoreboardAktif) then ayarlariKaydet() end
             imgui.Dummy(imgui.ImVec2(0, 5))
+            if imgui.Checkbox("Yeni Nesil Isim Etiketleri (Nametags)", ozelNametagAktif) then ayarlariKaydet() end
+            imgui.Dummy(imgui.ImVec2(0, 15))
+            imgui.Separator()
+            imgui.Dummy(imgui.ImVec2(0, 10))
             
-            imgui.BeginChild("TemaKutu", imgui.ImVec2(0, 330), true)
-            
-            if imgui.Checkbox("Dinamik RGB Cerceve Efektini Aktif Et", rgbBorder) then ayarlariKaydet() end
-            BilgiKutusu("Pencere cercevelerinde surekli renk degistiren RGB animasyonunu aktif eder.")
-            
-            imgui.Dummy(imgui.ImVec2(0, 5))
-            imgui.TextColored(imgui.ImVec4(0.6, 0.6, 0.6, 1.0), "Arayuz Yazi Tipi:")
+            imgui.TextColored(imgui.ImVec4(0.85, 0.85, 0.85, 1.0), "Arayuz Yazi Tipi:")
             imgui.PushItemWidth(250)
             if fontComboCount > 0 then
                 if imgui.Combo("##FontSecici", seciliFontIndex, fontComboItems, fontComboCount) then ayarlariKaydet() end
@@ -1841,55 +2225,247 @@ local newFrame = imgui.OnFrame(
             imgui.PopItemWidth()
             imgui.Dummy(imgui.ImVec2(0, 5))
             
-            if imgui.Checkbox("Gorsel ve Sesli Etkilesim Efektlerini Ac", sesVeEfektAktif) then ayarlariKaydet() end
+            if imgui.Checkbox("Gorsel ve Ses Efektleri", sesVeEfektAktif) then ayarlariKaydet() end
             
             imgui.Dummy(imgui.ImVec2(0, 5))
             imgui.PushItemWidth(250)
             if imgui.Combo("Imlec Stili", mouseTip, mouseTipItems, 4) then ayarlariKaydet() end
             imgui.PopItemWidth()
-            
             imgui.Dummy(imgui.ImVec2(0, 10))
-            imgui.TextColored(imgui.ImVec4(0.6, 0.6, 0.6, 1.0), "Arka Plan Tasarimi:")
             
+            imgui.TextColored(imgui.ImVec4(0.85, 0.85, 0.85, 1.0), "Arka Plan (Icerik Disinda Kalan Alan):")
             imgui.PushItemWidth(250)
             if imgui.Combo("##ArkaplanSecici", animArkaplan, arkaplanItems, 6) then ayarlariKaydet() end
             imgui.PopItemWidth()
-            BilgiKutusu("Harici gorsel (arkaplan.jpg) veya dinamik animasyonlari arka planda oynatir.")
+            
+            imgui.Dummy(imgui.ImVec2(0, 15))
+            imgui.TextColored(imgui.ImVec4(0.85, 0.85, 0.85, 1.0), "Vurgu Rengi Secimi (Menuler / Çizgiler):")
+            if imgui.ColorEdit3("Tema Rengi", temaRengi) then ayarlariKaydet() end
+            imgui.TextColored(imgui.ImVec4(0.65, 0.65, 0.65, 1.0), "* Oyun klasöründeki moonloader klasörüne 'arkaplan.jpg' koyarsanız özel arka plan uygulayabilirsiniz.")
+            
+            imgui.Dummy(imgui.ImVec2(0, 20))
+            imgui.TextColored(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0), "KONTROL TUSLARI")
+            imgui.Separator()
+            imgui.Dummy(imgui.ImVec2(0, 5))
+            
+            imgui.TextColored(imgui.ImVec4(0.85, 0.85, 0.85, 1.0), "Paneli acip kapatmak icin:")
+            if AnimButton(beklePanelTusu and "Basin..." or getKeyName(seciliKisayol[0]), imgui.ImVec2(150, 30)) then
+                beklePanelTusu = true; bekleMouseTusu = false; bekleCruiseTusu = false; bekleSinematikTusu = false; bekleScoreboardTusu = false; bindGecikmesi = os.clock() + 0.2
+            end
+            imgui.Dummy(imgui.ImVec2(0, 5))
+            
+            imgui.TextColored(imgui.ImVec4(0.85, 0.85, 0.85, 1.0), "Imleci gizlemek icin:")
+            if AnimButton(bekleMouseTusu and "Basin..." or getKeyName(seciliMouseKisayol[0]), imgui.ImVec2(150, 30)) then
+                bekleMouseTusu = true; beklePanelTusu = false; bekleCruiseTusu = false; bekleSinematikTusu = false; bekleScoreboardTusu = false; bindGecikmesi = os.clock() + 0.2
+            end
+            imgui.Dummy(imgui.ImVec2(0, 5))
+            
+            imgui.TextColored(imgui.ImVec4(0.85, 0.85, 0.85, 1.0), "Skor Tablosu (TAB):")
+            if AnimButton(bekleScoreboardTusu and "Basin..." or getKeyName(seciliScoreboardKisayol[0]), imgui.ImVec2(150, 30)) then
+                bekleScoreboardTusu = true; beklePanelTusu = false; bekleMouseTusu = false; bekleCruiseTusu = false; bekleSinematikTusu = false; bindGecikmesi = os.clock() + 0.2
+            end
+
+        elseif seciliSekme[0] == 16 then
+            imgui.TextColored(imgui.ImVec4(1.0, 1.0, 1.0, 1.0), "PIYASA VE ILAN TAKIP")
+            BilgiKutusu("Sohbette sizin belirlediginiz kelimeleri tarar ve ekrana anlik bildirim yansitir.")
+            imgui.Dummy(imgui.ImVec2(0, 15))
+
+            imgui.PushItemWidth(250)
+            imgui.InputText("Aranacak Kelime", inputPiyasa, 128)
+            imgui.PopItemWidth()
+            imgui.SameLine()
+            if AnimButton("Ekle", imgui.ImVec2(80, 24)) then
+                local kStr = ffi.string(inputPiyasa)
+                if kStr ~= "" then table.insert(piyasaFiltreleri, kStr); ayarlariKaydet(); ffi.copy(inputPiyasa, "") end
+            end
 
             imgui.Dummy(imgui.ImVec2(0, 10))
             
-            imgui.TextColored(imgui.ImVec4(0.6, 0.6, 0.6, 1.0), "Hazir Renk Paletleri:")
-            if AnimButton("Gece Mavisi", imgui.ImVec2(120, 30)) then temaRengi[0]=0.20; temaRengi[1]=0.55; temaRengi[2]=0.95; ayarlariKaydet() end imgui.SameLine()
-            if AnimButton("Kan Kirmizi", imgui.ImVec2(120, 30)) then temaRengi[0]=0.85; temaRengi[1]=0.20; temaRengi[2]=0.25; ayarlariKaydet() end imgui.SameLine()
-            if AnimButton("Zehir Yesili", imgui.ImVec2(120, 30)) then temaRengi[0]=0.25; temaRengi[1]=0.80; temaRengi[2]=0.35; ayarlariKaydet() end imgui.SameLine()
-            if AnimButton("Karanlik Mode", imgui.ImVec2(120, 30)) then temaRengi[0]=0.40; temaRengi[1]=0.40; temaRengi[2]=0.45; ayarlariKaydet() end
-            
+            imgui.BeginChild("PiyasaSolCol", imgui.ImVec2(280, 0), false)
+            imgui.BeginGroup()
+            imgui.TextColored(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0), "AKTIF FILTRELER")
+            imgui.Separator()
             imgui.Dummy(imgui.ImVec2(0, 5))
-            imgui.TextColored(imgui.ImVec4(0.6, 0.6, 0.6, 1.0), "Manuel Renk Secimi:")
-            if imgui.ColorEdit3("Arayuz Rengi", temaRengi) then ayarlariKaydet() end
-            
-            imgui.Dummy(imgui.ImVec2(0, 5))
-            if imgui.SliderFloat("Kose Yuvarlaklik Degeri", temaYuvarlaklik, 0.0, 20.0, "%.1f") then ayarlariKaydet() end
-            imgui.EndChild()
-            
-            imgui.Dummy(imgui.ImVec2(0, 10))
-            imgui.TextColored(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0), "Kontrol Tusu Yapilandirmasi")
-            imgui.BeginChild("KlavyeKutu", imgui.ImVec2(0, 140), true)
-            
-            imgui.TextColored(imgui.ImVec4(0.6, 0.6, 0.6, 1.0), "Paneli acip kapatmak icin kullanilan kisayol tusu:")
-            if AnimButton(beklePanelTusu and "Lutfen bir tusa basiniz..." or string.format("Atanan Tus: %s", getKeyName(seciliKisayol[0])), imgui.ImVec2(250, 30)) then
-                beklePanelTusu = true; bekleMouseTusu = false; bindGecikmesi = os.clock() + 0.2
+            if #piyasaFiltreleri == 0 then
+                imgui.TextColored(imgui.ImVec4(0.85, 0.85, 0.85, 1.0), "Henuz filtre eklenmemis.")
+            else
+                for i, kelime in ipairs(piyasaFiltreleri) do
+                    imgui.TextColored(imgui.ImVec4(1.0, 1.0, 0.4, 1.0), kelime)
+                    imgui.SameLine(imgui.GetWindowContentRegionWidth() - 30)
+                    if AnimButton("X##psil"..i, imgui.ImVec2(30, 24)) then table.remove(piyasaFiltreleri, i); ayarlariKaydet() end
+                end
             end
-            
-            imgui.Dummy(imgui.ImVec2(0, 5))
-            imgui.TextColored(imgui.ImVec4(0.6, 0.6, 0.6, 1.0), "Oyun ici imleci gizlemek icin kullanilan kisayol tusu:")
-            if AnimButton(bekleMouseTusu and "Lutfen bir tusa basiniz..." or string.format("Atanan Tus: %s", getKeyName(seciliMouseKisayol[0])), imgui.ImVec2(250, 30)) then
-                bekleMouseTusu = true; beklePanelTusu = false; bindGecikmesi = os.clock() + 0.2
-            end
+            imgui.EndGroup()
             imgui.EndChild()
+
+            imgui.SameLine(0, 15)
+
+            imgui.BeginChild("PiyasaSagCol", imgui.ImVec2(0, 0), false)
+            imgui.BeginGroup()
+            imgui.TextColored(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0), "YAKALANAN LOGLAR")
+            imgui.Separator()
+            imgui.Dummy(imgui.ImVec2(0, 5))
+            if #piyasaLoglari == 0 then
+                imgui.TextColored(imgui.ImVec4(0.85, 0.85, 0.85, 1.0), "Henuz bir ilan yakalanmadi.")
+            else
+                for i, log in ipairs(piyasaLoglari) do
+                    imgui.TextColored(imgui.ImVec4(0.85, 0.85, 0.85, 1.0), "[" .. log.zaman .. "]")
+                    imgui.SameLine()
+                    imgui.TextColored(imgui.ImVec4(0.5, 0.6, 1.0, 1.0), "[Tetikte: " .. log.kelime .. "]")
+                    imgui.PushTextWrapPos(imgui.GetWindowWidth() - 15)
+                    imgui.TextUnformatted(u8_decode(log.metin))
+                    imgui.PopTextWrapPos()
+                    imgui.Dummy(imgui.ImVec2(0, 5))
+                    imgui.GetWindowDrawList():AddLine(imgui.ImVec2(imgui.GetCursorScreenPos().x, imgui.GetCursorScreenPos().y), imgui.ImVec2(imgui.GetCursorScreenPos().x + imgui.GetWindowWidth() - 30, imgui.GetCursorScreenPos().y), imgui.GetColorU32Vec4(imgui.ImVec4(1,1,1,0.03)), 1.0)
+                end
+            end
+            imgui.EndGroup()
+            imgui.EndChild()
+
+        elseif seciliSekme[0] == 17 then
+            imgui.TextColored(imgui.ImVec4(1.0, 1.0, 1.0, 1.0), "MESLEK VERIMLILIK ASISTANI")
+            BilgiKutusu("Tirci, Copcu gibi mesleklerde emeginizin ve kârınızın saatlik/anlik bilancosunu cikarir.")
+            imgui.Dummy(imgui.ImVec2(0, 15))
+
+            if meslekAktif then
+                if AnimButton("Mesaiyi Bitir", imgui.ImVec2(200, 36)) then meslekAktif = false end
+            else
+                if AnimButton("Mesaiye Basla", imgui.ImVec2(200, 36)) then 
+                    meslekAktif = true
+                    meslekBaslangic = os.time()
+                    if sampIsLocalPlayerSpawned() and doesCharExist(PLAYER_PED) then
+                        meslekBaslangicPara = getPlayerMoney(PLAYER_HANDLE)
+                    else
+                        meslekBaslangicPara = 0
+                    end
+                    meslekSonPara = meslekBaslangicPara
+                    meslekKazanilan = 0
+                    meslekTur = 0
+                end
+            end
+
+            imgui.SameLine(250)
+            imgui.PushItemWidth(200)
+            imgui.InputInt("Hedef Kazanc ($)", meslekHedefPara, 1000)
+            imgui.PopItemWidth()
+
+            imgui.Dummy(imgui.ImVec2(0, 20))
+            
+            local calisilanSaniye = meslekAktif and (os.time() - meslekBaslangic) or 0
+            local mSaat = math.floor(calisilanSaniye / 3600)
+            local mDakika = math.floor((calisilanSaniye % 3600) / 60)
+            local mSaniye = calisilanSaniye % 60
+            local saatlikOrtalama = 0
+            if calisilanSaniye > 60 then saatlikOrtalama = math.floor((meslekKazanilan / (calisilanSaniye / 60)) * 60) end
+
+            imgui.Columns(3, "MeslekCol", false)
+            imgui.TextColored(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0), "GECEN SURE")
+            imgui.Separator()
+            if fontComboCount > 0 then imgui.PushFont(mevcutFontPointers[seciliFontIndex[0] + 1]) end
+            imgui.TextColored(imgui.ImVec4(1.0, 1.0, 1.0, 1.0), string.format("%02d:%02d:%02d", mSaat, mDakika, mSaniye))
+            if fontComboCount > 0 then imgui.PopFont() end
+
+            imgui.NextColumn()
+            imgui.TextColored(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0), "NET KAZANC")
+            imgui.Separator()
+            if fontComboCount > 0 then imgui.PushFont(mevcutFontPointers[seciliFontIndex[0] + 1]) end
+            imgui.TextColored(imgui.ImVec4(0.4, 1.0, 0.4, 1.0), "$ " .. formatNumber(meslekKazanilan))
+            if fontComboCount > 0 then imgui.PopFont() end
+
+            imgui.NextColumn()
+            imgui.TextColored(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0), "SAATLIK POTANSIYEL")
+            imgui.Separator()
+            if fontComboCount > 0 then imgui.PushFont(mevcutFontPointers[seciliFontIndex[0] + 1]) end
+            imgui.TextColored(imgui.ImVec4(1.0, 1.0, 0.4, 1.0), "$ " .. formatNumber(saatlikOrtalama) .. "/h")
+            if fontComboCount > 0 then imgui.PopFont() end
+            imgui.Columns(1)
+
+            imgui.Dummy(imgui.ImVec2(0, 25))
+
+            imgui.TextColored(imgui.ImVec4(0.85, 0.85, 0.85, 1.0), "Teslimat / Tur Sayaci:")
+            imgui.SameLine()
+            if AnimButton("-1", imgui.ImVec2(40, 30)) and meslekTur > 0 then meslekTur = meslekTur - 1 end
+            imgui.SameLine()
+            imgui.TextColored(imgui.ImVec4(1.0, 1.0, 1.0, 1.0), string.format("   %d Tur   ", meslekTur))
+            imgui.SameLine()
+            if AnimButton("+1", imgui.ImVec2(40, 30)) then meslekTur = meslekTur + 1 end
+
+            imgui.Dummy(imgui.ImVec2(0, 15))
+            imgui.TextColored(imgui.ImVec4(0.85, 0.85, 0.85, 1.0), "Hedefe Ulasma Durumu:")
+            local hYuzde = math.min(1.0, (meslekKazanilan / math.max(1, meslekHedefPara[0])))
+            imgui.PushStyleColor(imgui.Col.PlotHistogram, imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0))
+            imgui.ProgressBar(hYuzde, imgui.ImVec2(-1, 25), string.format("%% %d Tamamlandi", math.floor(hYuzde * 100)))
+            imgui.PopStyleColor()
+
+        elseif seciliSekme[0] == 18 then
+            imgui.TextColored(imgui.ImVec4(1.0, 1.0, 1.0, 1.0), "EKRAN GORUNTUSU GALERISI")
+            BilgiKutusu("SAMP tarafindan klasore kaydedilen ekran goruntulerinizi oyun icinden inceler.")
+            imgui.Dummy(imgui.ImVec2(0, 15))
+
+            if not lfs_yuklu then
+                imgui.TextColored(imgui.ImVec4(1.0, 0.4, 0.4, 1.0), "HATA: Luafilesystem (lfs) kutuphanesi eksik oldugu icin galeri kullanilamaz.")
+            else
+                if AnimButton("Klasoru Tara / Yenile", imgui.ImVec2(200, 35)) then tazeSSListesi() end
+                imgui.SameLine()
+                imgui.PushItemWidth(250)
+                imgui.InputText("Ara (Tarih/Isim)", aramaGaleri, 128)
+                imgui.PopItemWidth()
+                imgui.Dummy(imgui.ImVec2(0, 10))
+                
+                imgui.BeginChild("GaleriSolCol", imgui.ImVec2(300, 420), false)
+                imgui.BeginGroup()
+                imgui.TextColored(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0), "KAYDEDILEN GORSELLER")
+                imgui.Separator()
+                imgui.Dummy(imgui.ImVec2(0, 5))
+                if #ssListesi == 0 then
+                    imgui.TextColored(imgui.ImVec4(0.85, 0.85, 0.85, 1.0), "SS bulunamadi.")
+                else
+                    local gStr = ffi.string(aramaGaleri):lower()
+                    for i, dosya in ipairs(ssListesi) do
+                        if gStr == "" or dosya:lower():find(gStr) then
+                            if imgui.Selectable(dosya, seciliSSIndex[0] == i) then
+                                seciliSSIndex[0] = i
+                                yuklenenSSIsim = dosya
+                                local tamYol = os.getenv("USERPROFILE") .. "\\Documents\\GTA San Andreas User Files\\SAMP\\screens\\" .. dosya
+                                yuklenenSSTexture = imgui.CreateTextureFromFile(tamYol)
+                            end
+                        end
+                    end
+                end
+                imgui.EndGroup()
+                imgui.EndChild()
+                
+                imgui.SameLine(0, 15)
+                
+                imgui.BeginChild("GaleriSagCol", imgui.ImVec2(0, 420), false)
+                imgui.BeginGroup()
+                imgui.TextColored(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0), "ONIZLEME: " .. yuklenenSSIsim)
+                imgui.Separator()
+                imgui.Dummy(imgui.ImVec2(0, 5))
+                if yuklenenSSTexture then
+                    local pW = imgui.GetWindowContentRegionWidth()
+                    -- Gorseli tam ortalamak ve tam sigdirmak icin hesaplama
+                    imgui.SetCursorPosX((imgui.GetWindowWidth() - pW) / 2)
+                    imgui.Image(yuklenenSSTexture, imgui.ImVec2(pW, 310))
+                    imgui.Dummy(imgui.ImVec2(0, 5))
+                    imgui.SetCursorPosX((imgui.GetWindowWidth() - pW) / 2)
+                    if AnimButton("Bu Dosyayi Sil", imgui.ImVec2(pW, 35)) then
+                        local silYol = os.getenv("USERPROFILE") .. "\\Documents\\GTA San Andreas User Files\\SAMP\\screens\\" .. yuklenenSSIsim
+                        os.remove(silYol)
+                        yuklenenSSTexture = nil
+                        yuklenenSSIsim = ""
+                        seciliSSIndex[0] = -1
+                        tazeSSListesi()
+                        sampAddChatMessage("{4A90E2}[Sistem] {FFFFFF}Ekran goruntusu basariyla silindi.", -1)
+                    end
+                else
+                    imgui.TextColored(imgui.ImVec4(0.85, 0.85, 0.85, 1.0), "Gostermek icin soldan bir gorsel secin.")
+                end
+                imgui.EndGroup()
+                imgui.EndChild()
+            end
         end
         imgui.EndChild()
-
         imgui.End()
         imgui.PopStyleVar() 
         if fontAktifState then imgui.PopFont() end
@@ -1899,14 +2475,11 @@ local newFrame = imgui.OnFrame(
 function main()
     if not isSampLoaded() or not isSampfuncsLoaded() then return end
     while not isSampAvailable() do wait(100) end
-    
     ayarlariYukle()
-    
-    -- GÜNCELLEME KONTROLÜ
     otomatikGuncellemeKontrolu()
+    globalDuyuruKontrol()
     
-    if sampev_yuklu then sampAddChatMessage("{4A90E2}[Sistem] {FFFFFF}Modern Arayuz Paneli (v" .. SURUM .. ") yuklendi. Komut: /panel", -1)
-    else sampAddChatMessage("{4A90E2}[Sistem] {FFFFFF}Uyari: SAMP.Lua kutuphanesi eksik. Bazi islevler calismayabilir.", -1) end
+    if sampev_yuklu then sampAddChatMessage("{4A90E2}[Sistem] {FFFFFF}KaUI Modern Arayuz Paneli (v" .. SURUM .. ") yuklendi. Komut: /panel", -1) end
     
     sampRegisterChatCommand("panel", function()
         if bootState == 0 then
@@ -1928,29 +2501,131 @@ function main()
     while true do
         wait(0)
         
-        -- Guncelleme sinyali geldiyse ana dongu (main thread) icinde ikinci indirmeyi baslat
-        if guncellemeSinyali then
-            guncellemeSinyali = false -- Sinyali kapat ki donguye girmesin
+        if not beklePanelTusu and not bekleMouseTusu and not bekleCruiseTusu and not bekleSinematikTusu and not bekleScoreboardTusu then
             
+            if seciliKisayol[0] ~= 0 and wasKeyPressed(seciliKisayol[0]) and not sampIsChatInputActive() and not sampIsDialogActive() then
+                if bootState == 0 then
+                    bootState = 1
+                    bootStartTime = os.clock()
+                    renderWindow[0] = true
+                elseif bootState == 3 then
+                    if animState == 0 or animState == 3 then
+                        animState = 1
+                        renderWindow[0] = true
+                    elseif animState == 2 or animState == 1 then
+                        animState = 3
+                    end
+                end
+                if renderWindow[0] then mouseAktif = true end
+            end
+            
+            if renderWindow[0] and seciliMouseKisayol[0] ~= 0 then
+                if wasKeyPressed(seciliMouseKisayol[0]) and not sampIsChatInputActive() and not sampIsDialogActive() then
+                    mouseAktif = not mouseAktif
+                end
+            end
+
+            if seciliSinematikKisayol[0] ~= 0 and wasKeyPressed(seciliSinematikKisayol[0]) and not sampIsChatInputActive() and not sampIsDialogActive() then
+                sinematikAktif = not sinematikAktif
+                if sinematikAktif then
+                    origSensX = ffi.cast("float*", 0xB6EC1C)[0]
+                    origSensY = ffi.cast("float*", 0xB6EC18)[0]
+                    ffi.cast("float*", 0xB6EC1C)[0] = origSensX * 0.2
+                    ffi.cast("float*", 0xB6EC18)[0] = origSensY * 0.2
+                    displayHud(false)
+                    displayRadar(false)
+                    sampSetChatDisplayMode(0) 
+                    sampAddChatMessage("{4A90E2}[Sistem] {FFFFFF}Sinematik Cekim Modu (Puruzsuz Kamera) Aktif Edildi.", -1)
+                else
+                    ffi.cast("float*", 0xB6EC1C)[0] = origSensX
+                    ffi.cast("float*", 0xB6EC18)[0] = origSensY
+                    displayHud(true)
+                    displayRadar(true)
+                    sampSetChatDisplayMode(1) 
+                    sampAddChatMessage("{4A90E2}[Sistem] {FFFFFF}Sinematik Cekim Modu Kapatildi.", -1)
+                end
+            end
+            
+            if ozelScoreboardAktif[0] and seciliScoreboardKisayol[0] ~= 0 and wasKeyPressed(seciliScoreboardKisayol[0]) and not sampIsChatInputActive() and not sampIsDialogActive() then
+                scoreboardAcik = not scoreboardAcik
+            end
+        end
+
+        if sampIsLocalPlayerSpawned() and doesCharExist(PLAYER_PED) then
+            if meslekAktif then
+                local cMoney = getPlayerMoney(PLAYER_HANDLE)
+                if meslekSonPara ~= 0 and cMoney > meslekSonPara then meslekKazanilan = meslekKazanilan + (cMoney - meslekSonPara) end
+                meslekSonPara = cMoney
+            end
+
+            if isCharInAnyCar(PLAYER_PED) then
+                local car = storeCarCharIsInNoSave(PLAYER_PED)
+                if not wasInCar then wasInCar = true end
+                
+                if not bekleCruiseTusu and not beklePanelTusu and not bekleMouseTusu and not bekleSinematikTusu and not bekleScoreboardTusu then
+                    if wasKeyPressed(seciliCruiseKisayol[0]) and not sampIsChatInputActive() and not sampIsDialogActive() then
+                        isCruiseActive = not isCruiseActive
+                        if isCruiseActive then
+                            cruiseSpeed = getCarSpeed(car)
+                            sampAddChatMessage("{4A90E2}[Cruise] {FFFFFF}Hiz sabitlendi: " .. math.floor(cruiseSpeed * 3.6) .. " km/h", -1)
+                            addOneOffSound(0,0,0, 1145)
+                        else
+                            sampAddChatMessage("{4A90E2}[Cruise] {FFFFFF}Hiz sabitleyici kapatildi.", -1)
+                            addOneOffSound(0,0,0, 1145)
+                        end
+                    end
+                end
+                
+                if isCruiseActive then
+                    if (isKeyDown(vkeys.VK_W) or isKeyDown(vkeys.VK_S) or isKeyDown(vkeys.VK_SPACE)) and not sampIsChatInputActive() and not sampIsDialogActive() then
+                        isCruiseActive = false
+                        sampAddChatMessage("{FF0000}[Cruise] {FFFFFF}Mudehale edildi, sabitleyici devreden cikti.", -1)
+                        addOneOffSound(0,0,0, 1085)
+                    else
+                        local isTurning = (isKeyDown(vkeys.VK_A) or isKeyDown(vkeys.VK_D) or isKeyDown(vkeys.VK_LEFT) or isKeyDown(vkeys.VK_RIGHT)) and not sampIsChatInputActive() and not sampIsDialogActive()
+                        if not isTurning then setCarForwardSpeed(car, cruiseSpeed) end
+                    end
+                end
+            else
+                wasInCar = false
+                isCruiseActive = false
+            end
+        end
+
+        if (beklePanelTusu or bekleMouseTusu or bekleCruiseTusu or bekleSinematikTusu or bekleScoreboardTusu) and os.clock() > bindGecikmesi then
+            for k, v in pairs(vkeys) do
+                if type(k) == "string" and k:sub(1,3) == "VK_" and wasKeyPressed(v) then
+                    if v ~= vkeys.VK_ESCAPE then
+                        if beklePanelTusu then seciliKisayol[0] = v end
+                        if bekleMouseTusu then seciliMouseKisayol[0] = v end
+                        if bekleCruiseTusu then seciliCruiseKisayol[0] = v end
+                        if bekleSinematikTusu then seciliSinematikKisayol[0] = v end
+                        if bekleScoreboardTusu then seciliScoreboardKisayol[0] = v end
+                    end
+                    beklePanelTusu, bekleMouseTusu, bekleCruiseTusu, bekleSinematikTusu, bekleScoreboardTusu = false, false, false, false, false
+                    ayarlariKaydet()
+                    break
+                end
+            end
+        end
+        
+        if guncellemeSinyali then
+            guncellemeSinyali = false 
             lua_thread.create(function()
-                wait(1500) -- Moonloader indirme motorunun kapanmasi icin 1.5 saniye ek mola
+                wait(1500)
                 sampAddChatMessage("{4A90E2}[Sistem] {FFFFFF}Panel icin yeni guncelleme (v" .. guncellemeSurumu .. ") indiriliyor...", -1)
-                
                 local tempFile = getWorkingDirectory() .. "\\panel_temp_" .. os.time() .. ".lua"
-                
                 downloadUrlToFile(guncellemeLinki, tempFile, function(id2, status2, p12, p22)
                     if status2 == 58 then
                         local yf = io.open(tempFile, "r")
                         if yf then
                             local yeniKod = yf:read("*a")
                             yf:close()
-                            
                             local ak = io.open(scriptYolu, "w")
                             if ak then
                                 ak:write(yeniKod)
                                 ak:close()
                                 os.remove(tempFile)
-                                
                                 sampAddChatMessage("{4A90E2}[Sistem] {FFFFFF}Guncelleme basariyla kuruldu! Panel yeniden baslatiliyor...", -1)
                                 thisScript():reload()
                             else
@@ -1973,153 +2648,92 @@ function main()
             end
         end
         
-        if os.clock() - lastNearbyUpdate > 1.0 then
-            local tempNames = {}
-            local tempIDs = {}
-            local myX, myY, myZ = getCharCoordinates(PLAYER_PED)
-            for _, ped in ipairs(getAllChars()) do
-                if ped ~= PLAYER_PED then
-                    local isPlayer, id = sampGetPlayerIdByCharHandle(ped)
-                    if isPlayer then
-                        local px, py, pz = getCharCoordinates(ped)
-                        if getDistanceBetweenCoords3d(myX, myY, myZ, px, py, pz) <= 15.0 then
-                            local name = sampGetPlayerNickname(id):gsub("_", " ")
-                            table.insert(tempNames, string.format("[%d] %s", id, name))
-                            table.insert(tempIDs, id)
+        if sampIsLocalPlayerSpawned() and doesCharExist(PLAYER_PED) then
+            if os.clock() - lastNearbyUpdate > 1.0 then
+                local tempNames = {}
+                local tempIDs = {}
+                local myX, myY, myZ = getCharCoordinates(PLAYER_PED)
+                for _, ped in ipairs(getAllChars()) do
+                    if ped ~= PLAYER_PED then
+                        local isPlayer, id = sampGetPlayerIdByCharHandle(ped)
+                        if isPlayer then
+                            local px, py, pz = getCharCoordinates(ped)
+                            if getDistanceBetweenCoords3d(myX, myY, myZ, px, py, pz) <= 15.0 then
+                                local name = sampGetPlayerNickname(id):gsub("_", " ")
+                                table.insert(tempNames, string.format("[%d] %s", id, name))
+                                table.insert(tempIDs, id)
+                            end
                         end
                     end
                 end
-            end
-            currentNearbyNames = tempNames
-            currentNearbyIDs = tempIDs
-            
-            if #tempNames > 0 then
-                nearbyComboItems = ffi.new('const char*[?]', #tempNames)
-                nearbyPointers = {}
-                for i, v in ipairs(tempNames) do
-                    nearbyPointers[i] = imgui.new.char[256](v)
-                    nearbyComboItems[i-1] = nearbyPointers[i]
+                currentNearbyNames = tempNames
+                currentNearbyIDs = tempIDs
+                if #tempNames > 0 then
+                    nearbyComboItems = ffi.new('const char*[?]', #tempNames)
+                    nearbyPointers = {}
+                    for i, v in ipairs(tempNames) do
+                        nearbyPointers[i] = imgui.new.char[256](v)
+                        nearbyComboItems[i-1] = nearbyPointers[i]
+                    end
+                else
+                    nearbyComboItems = ffi.new('const char*[1]')
+                    nearbyPointers = { imgui.new.char[256]("Yakinda oyuncu bulunamadi") }
+                    nearbyComboItems[0] = nearbyPointers[1]
                 end
-            else
-                nearbyComboItems = ffi.new('const char*[1]')
-                nearbyPointers = { imgui.new.char[256]("Yakinda oyuncu bulunamadi") }
-                nearbyComboItems[0] = nearbyPointers[1]
+                if seciliChatTarget[0] >= #tempNames and #tempNames > 0 then seciliChatTarget[0] = #tempNames - 1 elseif #tempNames == 0 then seciliChatTarget[0] = 0 end
+                lastNearbyUpdate = os.clock()
             end
             
-            if seciliChatTarget[0] >= #tempNames and #tempNames > 0 then 
-                seciliChatTarget[0] = #tempNames - 1 
-            elseif #tempNames == 0 then 
-                seciliChatTarget[0] = 0 
+            local cPx, cPy, cPz = getCharCoordinates(PLAYER_PED)
+            if cPx ~= 0.0 and sesLastPx ~= 0.0 then
+                local pDist = getDistanceBetweenCoords3d(cPx, cPy, cPz, sesLastPx, sesLastPy, sesLastPz)
+                if pDist > 0.1 and pDist < 100.0 then
+                    sesLastActive = os.clock()
+                    if isCharInAnyCar(PLAYER_PED) then sesCarDist = sesCarDist + pDist else sesFootDist = sesFootDist + pDist end
+                end
             end
-            lastNearbyUpdate = os.clock()
-        end
-        
-        local cPx, cPy, cPz = getCharCoordinates(PLAYER_PED)
-        if cPx ~= 0.0 and sesLastPx ~= 0.0 then
-            local pDist = getDistanceBetweenCoords3d(cPx, cPy, cPz, sesLastPx, sesLastPy, sesLastPz)
-            if pDist > 0.1 and pDist < 100.0 then 
-                sesLastActive = os.clock()
-                if isCharInAnyCar(PLAYER_PED) then sesCarDist = sesCarDist + pDist
-                else sesFootDist = sesFootDist + pDist end
+            sesLastPx, sesLastPy, sesLastPz = cPx, cPy, cPz
+            
+            if os.clock() - sesLastActive > 60.0 then sesAfkTime = sesAfkTime + 1; wait(1000) end
+            
+            local cMoney = getPlayerMoney(PLAYER_HANDLE)
+            if sesLastMoney ~= 0 then
+                if cMoney > sesLastMoney then sesMoneyEarned = sesMoneyEarned + (cMoney - sesLastMoney) elseif cMoney < sesLastMoney then sesMoneyLost = sesMoneyLost + (sesLastMoney - cMoney) end
             end
-        end
-        sesLastPx, sesLastPy, sesLastPz = cPx, cPy, cPz
-        
-        if os.clock() - sesLastActive > 60.0 then
-            sesAfkTime = sesAfkTime + 1
-            wait(1000) 
-        end
-        
-        local cMoney = getPlayerMoney(PLAYER_HANDLE)
-        if sesLastMoney ~= 0 then
-            if cMoney > sesLastMoney then sesMoneyEarned = sesMoneyEarned + (cMoney - sesLastMoney)
-            elseif cMoney < sesLastMoney then sesMoneyLost = sesMoneyLost + (sesLastMoney - cMoney) end
-        end
-        sesLastMoney = cMoney
-        
-        for _, ped in ipairs(getAllChars()) do
-            if ped ~= PLAYER_PED then
-                local isP, pId = sampGetPlayerIdByCharHandle(ped)
-                if isP then
-                    local dist = getDistanceBetweenCoords3d(cPx, cPy, cPz, getCharCoordinates(ped))
-                    if dist <= 15.0 then
-                        local nName = sampGetPlayerNickname(pId):gsub("_", " ")
-                        if not sesPlayersSeen[nName] then
-                            sesPlayersSeen[nName] = true
-                        end
-                        if favoritePlayers[nName] then
-                            local t = os.clock()
-                            if t > (favoriteAlerted[nName] or 0) then
-                                sampAddChatMessage("{FFD700}[Favori Radari] {FFFFFF}" .. nName .. " yakininizda!", -1)
-                                addOneOffSound(0, 0, 0, 1150)
-                                favoriteAlerted[nName] = t + 300.0 
+            sesLastMoney = cMoney
+            
+            for _, ped in ipairs(getAllChars()) do
+                if ped ~= PLAYER_PED then
+                    local isP, pId = sampGetPlayerIdByCharHandle(ped)
+                    if isP then
+                        local dist = getDistanceBetweenCoords3d(cPx, cPy, cPz, getCharCoordinates(ped))
+                        if dist <= 15.0 then
+                            local nName = sampGetPlayerNickname(pId):gsub("_", " ")
+                            if not sesPlayersSeen[nName] then sesPlayersSeen[nName] = true end
+                            if favoritePlayers[nName] then
+                                local t = os.clock()
+                                if t > (favoriteAlerted[nName] or 0) then
+                                    sampAddChatMessage("{FFD700}[Favori Radari] {FFFFFF}" .. nName .. " yakininizda!", -1)
+                                    addOneOffSound(0, 0, 0, 1150)
+                                    favoriteAlerted[nName] = t + 300.0 
+                                end
                             end
                         end
                     end
                 end
             end
+
+            if isCharInAnyCar(PLAYER_PED) then
+                if not wasInCar then wasInCar = true; sesCarsUsed = sesCarsUsed + 1 end
+                local car = storeCarCharIsInNoSave(PLAYER_PED)
+                local speed = getCarSpeed(car) * 3.6 
+                if speed > sesMaxSpeed then sesMaxSpeed = speed end
+                if kameraSabitleAktif[0] then ffi.cast("float*", 0xB70118)[0] = 50.0 end
+            else
+                wasInCar = false
+            end
         end
 
         if g_SabitZaman then setTimeOfDay(g_SabitZaman, 0) end
-        
-        if isCharInAnyCar(PLAYER_PED) then
-            if not wasInCar then
-                wasInCar = true
-                sesCarsUsed = sesCarsUsed + 1
-            end
-            
-            local car = storeCarCharIsInNoSave(PLAYER_PED)
-            local speed = getCarSpeed(car) * 3.6 
-            if speed > sesMaxSpeed then sesMaxSpeed = speed end
-            
-            if kameraSabitleAktif[0] then
-                ffi.cast("float*", 0xB70118)[0] = 50.0
-            end
-        else wasInCar = false end
-        
-        if (beklePanelTusu or bekleMouseTusu) and os.clock() > bindGecikmesi then
-            for k, v in pairs(vkeys) do
-                if type(k) == "string" and k:sub(1,3) == "VK_" and wasKeyPressed(v) then
-                    if v ~= vkeys.VK_ESCAPE then
-                        if beklePanelTusu then seciliKisayol[0] = v end
-                        if bekleMouseTusu then seciliMouseKisayol[0] = v end
-                    end
-                    beklePanelTusu, bekleMouseTusu = false, false
-                    ayarlariKaydet()
-                    break
-                end
-            end
-        end
-        
-        if #tusKuyrugu > 0 then
-            local tus = table.remove(tusKuyrugu, 1)
-            setVirtualKeyDown(tus, true)
-            wait(50)
-            setVirtualKeyDown(tus, false)
-        end
-        
-        if not beklePanelTusu and not bekleMouseTusu then
-            if seciliKisayol[0] ~= 0 and wasKeyPressed(seciliKisayol[0]) and not sampIsChatInputActive() and not sampIsDialogActive() then
-                if bootState == 0 then
-                    bootState = 1
-                    bootStartTime = os.clock()
-                    renderWindow[0] = true
-                elseif bootState == 3 then
-                    if animState == 0 or animState == 3 then
-                        animState = 1
-                        renderWindow[0] = true
-                    elseif animState == 2 or animState == 1 then
-                        animState = 3
-                    end
-                end
-                if renderWindow[0] then mouseAktif = true end
-            end
-            
-            if renderWindow[0] and seciliMouseKisayol[0] ~= 0 then
-                if wasKeyPressed(seciliMouseKisayol[0]) and not sampIsChatInputActive() and not sampIsDialogActive() then
-                    mouseAktif = not mouseAktif
-                end
-            end
-        end
     end
 end
