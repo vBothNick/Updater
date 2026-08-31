@@ -1,4 +1,4 @@
-local SURUM = "1.6"
+local SURUM = "1.7"
 
 script_name("MIMGUI Modern Arayuz Paneli")
 script_author("Jakuzi")
@@ -41,7 +41,8 @@ function otomatikGuncellemeKontrolu()
     lua_thread.create(function()
         wait(2500)
         local checkFile = getWorkingDirectory() .. "\\update_check.txt"
-        downloadUrlToFile(guncellemeURL, checkFile, function(id, status, p1, p2)
+        local anlikURL = guncellemeURL .. "?t=" .. tostring(os.time())
+        downloadUrlToFile(anlikURL, checkFile, function(id, status, p1, p2)
             if status == 58 then 
                 local f = io.open(checkFile, "r")
                 if f then
@@ -67,30 +68,33 @@ end
 
 function globalDuyuruKontrol()
     lua_thread.create(function()
-        wait(5000)
-        local notifFile = getWorkingDirectory() .. "\\duyuru_check.txt"
-        downloadUrlToFile(duyuruURL, notifFile, function(id, status, p1, p2)
-            if status == 58 then
-                local f = io.open(notifFile, "r")
-                if f then
-                    local data = f:read("*a")
-                    f:close()
-                    os.remove(notifFile)
-                    local nId, nMsg = data:match("(%d+)|(.+)")
-                    if nId and nMsg then
-                        nId = tonumber(nId)
-                        if nId > (mainIni.ayarlar.last_notif_id or 0) then
-                            aktifBildirimMetin = nMsg
-                            aktifBildirim = true
-                            aktifBildirimZaman = os.clock() + 15.0
-                            mainIni.ayarlar.last_notif_id = nId
-                            inicfg.save(mainIni, iniFile)
-                            addOneOffSound(0,0,0, 1149)
+        while true do
+            wait(30000)
+            local notifFile = getWorkingDirectory() .. "\\duyuru_check.txt"
+            local anlikURL = duyuruURL .. "?t=" .. tostring(os.time())
+            downloadUrlToFile(anlikURL, notifFile, function(id, status, p1, p2)
+                if status == 58 then
+                    local f = io.open(notifFile, "r")
+                    if f then
+                        local data = f:read("*a")
+                        f:close()
+                        os.remove(notifFile)
+                        local nId, nMsg = data:match("(%d+)|(.+)")
+                        if nId and nMsg then
+                            nId = tonumber(nId)
+                            if nId > (mainIni.ayarlar.last_notif_id or 0) then
+                                aktifBildirimMetin = nMsg
+                                aktifBildirim = true
+                                aktifBildirimZaman = os.clock() + 15.0
+                                mainIni.ayarlar.last_notif_id = nId
+                                inicfg.save(mainIni, iniFile)
+                                addOneOffSound(0,0,0, 1149)
+                            end
                         end
                     end
                 end
-            end
-        end)
+            end)
+        end
     end)
 end
 
@@ -106,15 +110,19 @@ fontComboCount = 0
 fontComboItems = nil
 fontNamesPointers = {} 
 
--- Kutu Çizim Sembolleri Unicode Aralığı (0x2500 - 0x257F) ve Maça/Sinek (0x2600 - 0x26FF)
 glyph_ranges = imgui.new.ImWchar[9](0x0020, 0x00FF, 0x0100, 0x017F, 0x0400, 0x04FF, 0x2500, 0x26FF, 0)
 bgTexture = nil
+btnTexture = nil
 
 local isMenuOpen = false
 local animState = 0 
 local animProgress = 0.0
 local bootState = 0 
 local bootStartTime = 0
+
+-- Yeni Animasyon Durum Yöneticileri
+local btnAnimStates = {}
+local navAnimStates = {}
 
 imgui.OnInitialize(function()
     local config = imgui.ImFontConfig()
@@ -144,24 +152,33 @@ imgui.OnInitialize(function()
         bgFile:close()
         bgTexture = imgui.CreateTextureFromFile(bgPath)
     end
+    
+    -- Buton Arka Plan Kontrolu
+    local btnBgPath = getWorkingDirectory() .. "\\buton_bg.jpg"
+    local btnBgFile = io.open(btnBgPath, "rb")
+    if btnBgFile then
+        btnBgFile:close()
+        btnTexture = imgui.CreateTextureFromFile(btnBgPath)
+    end
 end)
 
 iniFile = "SAMP_OzelPanel.ini"
 animDosya = getWorkingDirectory() .. "\\ModernHUB_Animasyonlar.txt"
 
 mainIni = inicfg.load({
-    isimler = {}, komutlar = {}, rp_isimler = {}, rp_komutlar = {}, radar = {}, oto_mesajlar = {}, piyasa = {},
+    isimler = {}, komutlar = {}, kisayollar = {}, rp_isimler = {}, rp_komutlar = {}, radar = {}, oto_mesajlar = {}, piyasa = {},
     ayarlar = { 
         kisayol_v2 = 113, mouse_kisayol_v2 = 4, secili_font = 0, chatlog_count = 1,
         tema_r = 0.75, tema_g = 0.55, tema_b = 0.35, yuvarlaklik = 12.0,
-        mouse_tip = 1, ses_ve_efekt = true, rgb_border = false, anim_arkaplan = 0, kamera_sabitle = false,
+        mouse_tip = 1, ses_ve_efekt = true, rgb_border = false, kamera_sabitle = false,
         cruise_kisayol = 67, dinamik_hud = false, hitmarker_aktif = false,
         ozel_scoreboard = false, ozel_nametag = false, sinematik_kisayol = 122,
         dinamik_hud_sabit = false, scoreboard_kisayol = 121, last_notif_id = 0
     },
     afk = { aktif = false, tetikleyici = "Kullanici", mesaj = "Su an klavye basinda degilim, daha sonra donus yapacagim." },
     rol_filtre = { aksan_aktif = false, aksan_metin = "[Ispanyolca] ", telsiz_aktif = false },
-    oto_arac = { kemer = false, motor = false }
+    oto_arac = { kemer = false, motor = false },
+    oto_login = { aktif = false, sifre = "" }
 }, iniFile)
 
 function getKeyName(id)
@@ -170,6 +187,19 @@ function getKeyName(id)
         if v == id and type(k) == "string" and k:sub(1,3) == "VK_" then return k:sub(4) end
     end
     return tostring(id)
+end
+
+function getComboName(tusTablosu)
+    if not tusTablosu or #tusTablosu == 0 then return "Tus Ata" end
+    local names = {}
+    for _, k in ipairs(tusTablosu) do
+        local name = getKeyName(k)
+        if k == vkeys.VK_CONTROL or k == vkeys.VK_LCONTROL or k == vkeys.VK_RCONTROL then name = "CTRL" end
+        if k == vkeys.VK_MENU or k == vkeys.VK_LMENU or k == vkeys.VK_RMENU then name = "ALT" end
+        if k == vkeys.VK_SHIFT or k == vkeys.VK_LSHIFT or k == vkeys.VK_RSHIFT then name = "SHIFT" end
+        table.insert(names, name)
+    end
+    return table.concat(names, " + ")
 end
 
 function formatNumber(n)
@@ -214,6 +244,9 @@ seciliSinematikKisayol = imgui.new.int(mainIni.ayarlar.sinematik_kisayol or vkey
 sinematikAktif = false
 origSensX, origSensY = 0.0025, 0.0025
 bekleSinematikTusu = false
+
+otoLoginAktif = imgui.new.bool(mainIni.oto_login.aktif or false)
+otoLoginSifre = imgui.new.char[128](mainIni.oto_login.sifre or "")
 
 local ssListesi = {}
 local ssComboItems = ffi.new('const char*[1]')
@@ -270,14 +303,6 @@ mouseTipPointers = {}
 for i, v in ipairs(mouseTipleriListesi) do
     mouseTipPointers[i] = imgui.new.char[256](v)
     mouseTipItems[i - 1] = mouseTipPointers[i]
-end
-
-arkaplanIsimleri = {"Kapali (Varsayilan)", "Yildiz Yagmuru", "Matrix Etkisi", "Kar Yagisi", "Yukselen Baloncuklar", "Meteor Yagmuru"}
-arkaplanItems = ffi.new('const char*[?]', #arkaplanIsimleri)
-arkaplanPointers = {}
-for i, v in ipairs(arkaplanIsimleri) do
-    arkaplanPointers[i] = imgui.new.char[256](v)
-    arkaplanItems[i - 1] = arkaplanPointers[i]
 end
 
 havaDurumuIsimleri = {"Gunesli Acik", "Bulutlu", "Yagmurlu", "Sisli", "Kizil Gokyuzu (Aksam)", "Gece Karanligi", "Kum Firtinasi"}
@@ -381,7 +406,6 @@ temaYuvarlaklik = imgui.new.float(mainIni.ayarlar.yuvarlaklik or 12.0)
 mouseTip = imgui.new.int(mainIni.ayarlar.mouse_tip or 1)
 sesVeEfektAktif = imgui.new.bool(mainIni.ayarlar.ses_ve_efekt)
 rgbBorder = imgui.new.bool(mainIni.ayarlar.rgb_border or false)
-animArkaplan = imgui.new.int(mainIni.ayarlar.anim_arkaplan or 0)
 kameraSabitleAktif = imgui.new.bool(mainIni.ayarlar.kamera_sabitle or false)
 
 beklePanelTusu, bekleMouseTusu = false, false
@@ -409,9 +433,6 @@ ajandaBuffer = imgui.new.char[16384]("")
 duzenleRpIndex, duzenleOzelIndex, duzenleAnimIndex = 0, 0, 0
 seciliSekme = imgui.new.int(1)
 
--- =========================================================================
--- KaUI - KATEGORILI MENU YAPISI
--- =========================================================================
 local menuKategoriler = {
     {
         isim = "WORKSPACE",
@@ -457,51 +478,109 @@ local menuKategoriler = {
     }
 }
 
-particles = {}
-bgParticles = {}
-
-for i = 1, 50 do
-    table.insert(bgParticles, {
-        x = math.random() * 2000, y = math.random() * 2000,
-        speed = 0.5 + math.random() * 1.5, size = 1.0 + math.random() * 2.0,
-        phase = math.random() * math.pi * 2
-    })
-end
-
+-- YENI ANIMASYONLU BUTON SISTEMI (Glow & Hover & Click Scale)
 function AnimButton(isim, beklemeBoyutu)
-    local btnBoyut = beklemeBoyutu or imgui.ImVec2(0, 0)
-    local clicked = imgui.Button(isim, btnBoyut)
+    local p = imgui.GetCursorScreenPos()
+    local cleanName = isim:match("^(.-)##") or isim
+    local tSize = imgui.CalcTextSize(cleanName)
+    local w = beklemeBoyutu.x > 0 and beklemeBoyutu.x or tSize.x + 24
+    local h = beklemeBoyutu.y > 0 and beklemeBoyutu.y or 36.0
+
+    if not btnAnimStates[isim] then btnAnimStates[isim] = { hoverAlpha = 0.0, clickScale = 1.0 } end
+    local state = btnAnimStates[isim]
+
+    local clicked = imgui.InvisibleButton(isim, imgui.ImVec2(w, h))
+    local hovered = imgui.IsItemHovered()
+    local active = imgui.IsItemActive()
+
+    local targetHover = hovered and 1.0 or 0.0
+    local targetScale = active and 0.93 or 1.0
+
+    state.hoverAlpha = state.hoverAlpha + (targetHover - state.hoverAlpha) * 0.15
+    state.clickScale = state.clickScale + (targetScale - state.clickScale) * 0.3
+
+    local cX = p.x + w / 2
+    local cY = p.y + h / 2
+    local sW = w * state.clickScale
+    local sH = h * state.clickScale
+
+    local drawPosMin = imgui.ImVec2(cX - sW/2, cY - sH/2)
+    local drawPosMax = imgui.ImVec2(cX + sW/2, cY + sH/2)
+
+    local dl = imgui.GetWindowDrawList()
+    local r, g, b = temaRengi[0], temaRengi[1], temaRengi[2]
+    
+    local baseCol = imgui.GetColorU32Vec4(imgui.ImVec4(0.2, 0.2, 0.2, 1.0))
+    local glowCol = imgui.GetColorU32Vec4(imgui.ImVec4(r, g, b, state.hoverAlpha * 0.8))
+    local borderCol = imgui.GetColorU32Vec4(imgui.ImVec4(r, g, b, 0.4 + (state.hoverAlpha * 0.6)))
+
+    if state.hoverAlpha > 0.01 then
+        for i = 1, 3 do
+            local gMin = imgui.ImVec2(drawPosMin.x - i, drawPosMin.y - i)
+            local gMax = imgui.ImVec2(drawPosMax.x + i, drawPosMax.y + i)
+            dl:AddRectFilled(gMin, gMax, imgui.GetColorU32Vec4(imgui.ImVec4(r, g, b, state.hoverAlpha * (0.3 / i))), 8.0)
+        end
+    end
+
+    if btnTexture then
+        dl:AddImageRounded(btnTexture, drawPosMin, drawPosMax, imgui.ImVec2(0,0), imgui.ImVec2(1,1), imgui.GetColorU32Vec4(imgui.ImVec4(1,1,1, 0.8 + (state.hoverAlpha*0.2))), 6.0)
+    else
+        dl:AddRectFilled(drawPosMin, drawPosMax, baseCol, 6.0)
+    end
+    
+    dl:AddRectFilled(drawPosMin, drawPosMax, glowCol, 6.0)
+    dl:AddRect(drawPosMin, drawPosMax, borderCol, 6.0, 15, 1.5)
+
+    local tPos = imgui.ImVec2(cX - tSize.x/2, cY - tSize.y/2)
+    dl:AddText(tPos, imgui.GetColorU32Vec4(imgui.ImVec4(1, 1, 1, 1)), cleanName)
+
     if clicked and sesVeEfektAktif[0] then addOneOffSound(0, 0, 0, 1083) end
     return clicked
 end
 
--- =========================================================================
--- KaUI - DISCORD TARZI PILL TASARIMLI NAVIGASYON BUTONU (UTF-8 BAYT KODLARI)
--- =========================================================================
+-- YENI ANIMASYONLU NAVIGASYON BUTONU
 function ModernNavButton(id, prefix, isim, isSelected, btnBoyut)
     local p = imgui.GetCursorScreenPos()
     local w = btnBoyut.x > 0 and btnBoyut.x or imgui.GetWindowContentRegionWidth()
-    local h = btnBoyut.y > 0 and btnBoyut.y or 40.0
+    local h = btnBoyut.y > 0 and btnBoyut.y or 36.0 
     
+    if not navAnimStates[id] then navAnimStates[id] = { hoverAlpha = 0.0, selectLerp = isSelected and 1.0 or 0.0 } end
+    local state = navAnimStates[id]
+
     local clicked = imgui.InvisibleButton("btn_nav_"..id, imgui.ImVec2(w, h))
     local hovered = imgui.IsItemHovered()
-    
+
+    local targetHover = hovered and 1.0 or 0.0
+    local targetSelect = isSelected and 1.0 or 0.0
+
+    state.hoverAlpha = state.hoverAlpha + (targetHover - state.hoverAlpha) * 0.15
+    state.selectLerp = state.selectLerp + (targetSelect - state.selectLerp) * 0.15
+
     local dl = imgui.GetWindowDrawList()
-    
-    local bgActive = imgui.GetColorU32Vec4(imgui.ImVec4(0.35, 0.35, 0.35, 0.50))
-    local bgHover = imgui.GetColorU32Vec4(imgui.ImVec4(0.20, 0.20, 0.20, 0.50))
-    
-    if isSelected then
-        dl:AddRectFilled(p, imgui.ImVec2(p.x + w, p.y + h), bgActive, 6.0)
-    elseif hovered then
-        dl:AddRectFilled(p, imgui.ImVec2(p.x + w, p.y + h), bgHover, 6.0)
+    local r, g, b = temaRengi[0], temaRengi[1], temaRengi[2]
+
+    local bgBase = imgui.GetColorU32Vec4(imgui.ImVec4(0.12, 0.12, 0.12, 0.5))
+    local bgHover = imgui.GetColorU32Vec4(imgui.ImVec4(0.20, 0.20, 0.20, state.hoverAlpha * 0.8))
+    local bgSelect = imgui.GetColorU32Vec4(imgui.ImVec4(r, g, b, state.selectLerp * 0.3))
+
+    dl:AddRectFilled(p, imgui.ImVec2(p.x + w, p.y + h), bgBase, 6.0)
+    if state.hoverAlpha > 0.01 then dl:AddRectFilled(p, imgui.ImVec2(p.x + w, p.y + h), bgHover, 6.0) end
+    if state.selectLerp > 0.01 then dl:AddRectFilled(p, imgui.ImVec2(p.x + w, p.y + h), bgSelect, 6.0) end
+
+    if state.selectLerp > 0.01 then
+        dl:AddRectFilled(p, imgui.ImVec2(p.x + 4, p.y + h), imgui.GetColorU32Vec4(imgui.ImVec4(r, g, b, state.selectLerp)), 6.0)
     end
-    
-    local textCol = isSelected and imgui.GetColorU32Vec4(imgui.ImVec4(1.0, 1.0, 1.0, 1.0)) or imgui.GetColorU32Vec4(imgui.ImVec4(0.85, 0.85, 0.85, 1.0))
-    
-    -- Format: ╠ ═ İsim / ╚ ═ İsim 
+
+    local textCol = imgui.GetColorU32Vec4(imgui.ImVec4(
+        0.75 + (0.25 * state.selectLerp),
+        0.75 + (0.25 * state.selectLerp),
+        0.75 + (0.25 * state.selectLerp),
+        1.0
+    ))
+
     local fullText = string.format("%s  %s", prefix, isim)
-    local textPos = imgui.ImVec2(p.x + 12, p.y + (h - imgui.CalcTextSize(fullText).y) / 2)
+    local shiftX = (state.hoverAlpha * 5) + (state.selectLerp * 5)
+    local textPos = imgui.ImVec2(p.x + 12 + shiftX, p.y + (h - imgui.CalcTextSize(fullText).y) / 2)
     dl:AddText(textPos, textCol, fullText)
     
     if clicked and sesVeEfektAktif[0] then addOneOffSound(0, 0, 0, 1083) end
@@ -509,12 +588,6 @@ function ModernNavButton(id, prefix, isim, isSelected, btnBoyut)
 end
 
 function updateAracCombo()
-    -- OnInitialize'dan once render hatasi vermemesi icin guvenli array kurulumu
-    comboAracCount = 1
-    comboAracPointers = { imgui.new.char[256]("Cevrede arac bulunamadi (Yenile)") }
-    comboAracItems = ffi.new('const char*[1]')
-    comboAracItems[0] = comboAracPointers[1]
-    
     local list = {}
     if #aktifAraclar == 0 then table.insert(list, "Cevrede arac bulunamadi (Yenile)")
     else for i, v in ipairs(aktifAraclar) do table.insert(list, string.format("%s (ID: %d) - Plaka: %s", v.isim, v.id, v.plaka)) end end
@@ -568,7 +641,23 @@ end
 
 function ayarlariYukle()
     ozelButonlar, rpButonlar, radarKelimeler, otoMesajlar, piyasaFiltreleri = {}, {}, {}, {}, {}
-    if mainIni.isimler then for k, v in pairs(mainIni.isimler) do if mainIni.komutlar[k] then table.insert(ozelButonlar, {isim = v, komut = mainIni.komutlar[k]}) end end end
+    if mainIni.isimler then 
+        for k, v in pairs(mainIni.isimler) do 
+            if mainIni.komutlar[k] then 
+                local parsedTus = {}
+                if mainIni.kisayollar and mainIni.kisayollar[k] then
+                    local raw = mainIni.kisayollar[k]
+                    if type(raw) == "string" and raw:find(",") then
+                        for x in raw:gmatch("%d+") do table.insert(parsedTus, tonumber(x)) end
+                    else
+                        local tNum = tonumber(raw)
+                        if tNum and tNum ~= 0 then table.insert(parsedTus, tNum) end
+                    end
+                end
+                table.insert(ozelButonlar, {isim = v, komut = mainIni.komutlar[k], tus = parsedTus, bekliyor = false}) 
+            end 
+        end 
+    end
     if mainIni.rp_isimler then for k, v in pairs(mainIni.rp_isimler) do if mainIni.rp_komutlar[k] then table.insert(rpButonlar, {isim = v, komut = mainIni.rp_komutlar[k]}) end end end
     if mainIni.radar then for k, v in pairs(mainIni.radar) do table.insert(radarKelimeler, v) end end
     if mainIni.piyasa then for k, v in pairs(mainIni.piyasa) do table.insert(piyasaFiltreleri, v) end end
@@ -583,8 +672,16 @@ function ayarlariYukle()
 end
 
 function ayarlariKaydet()
-    local y = {isimler = {}, komutlar = {}, rp_isimler = {}, rp_komutlar = {}, radar = {}, oto_mesajlar = {}, piyasa = {}, ayarlar = {}, afk = {}, rol_filtre = {}, oto_arac = {}}
-    for i, val in ipairs(ozelButonlar) do y.isimler[tostring(i)] = val.isim; y.komutlar[tostring(i)] = val.komut end
+    local y = {isimler = {}, komutlar = {}, kisayollar = {}, rp_isimler = {}, rp_komutlar = {}, radar = {}, oto_mesajlar = {}, piyasa = {}, ayarlar = {}, afk = {}, rol_filtre = {}, oto_arac = {}, oto_login = {}}
+    for i, val in ipairs(ozelButonlar) do 
+        y.isimler[tostring(i)] = val.isim
+        y.komutlar[tostring(i)] = val.komut
+        if type(val.tus) == "table" and #val.tus > 0 then
+            y.kisayollar[tostring(i)] = table.concat(val.tus, ",")
+        else
+            y.kisayollar[tostring(i)] = "0"
+        end
+    end
     for i, val in ipairs(rpButonlar) do y.rp_isimler[tostring(i)] = val.isim; y.rp_komutlar[tostring(i)] = val.komut end
     for i, val in ipairs(radarKelimeler) do y.radar[tostring(i)] = val end
     for i, val in ipairs(piyasaFiltreleri) do y.piyasa[tostring(i)] = val end
@@ -593,7 +690,7 @@ function ayarlariKaydet()
     y.ayarlar.kisayol_v2 = seciliKisayol[0]; y.ayarlar.mouse_kisayol_v2 = seciliMouseKisayol[0]; y.ayarlar.secili_font = seciliFontIndex[0]
     y.ayarlar.tema_r = temaRengi[0]; y.ayarlar.tema_g = temaRengi[1]; y.ayarlar.tema_b = temaRengi[2]
     y.ayarlar.yuvarlaklik = temaYuvarlaklik[0]; y.ayarlar.mouse_tip = mouseTip[0]; y.ayarlar.ses_ve_efekt = sesVeEfektAktif[0]
-    y.ayarlar.rgb_border = rgbBorder[0]; y.ayarlar.anim_arkaplan = animArkaplan[0]; y.ayarlar.kamera_sabitle = kameraSabitleAktif[0]
+    y.ayarlar.rgb_border = rgbBorder[0]; y.ayarlar.kamera_sabitle = kameraSabitleAktif[0]
     y.ayarlar.chatlog_count = chatLogCount[0]; y.ayarlar.cruise_kisayol = seciliCruiseKisayol[0]
     y.ayarlar.dinamik_hud = dinamikHudAktif[0]; y.ayarlar.hitmarker_aktif = hitmarkerAktif[0]
     y.ayarlar.dinamik_hud_sabit = dinamikHudSabit[0];
@@ -604,6 +701,8 @@ function ayarlariKaydet()
     y.afk.aktif = afkAktif[0]; y.afk.tetikleyici = ffi.string(afkTetikleyici); y.afk.mesaj = ffi.string(afkMesaj)
     y.rol_filtre.aksan_aktif = aksanAktif[0]; y.rol_filtre.aksan_metin = ffi.string(aksanMetin); y.rol_filtre.telsiz_aktif = telsizAktif[0]
     y.oto_arac.kemer = otoKemerAktif[0]; y.oto_arac.motor = otoMotorAktif[0]
+    
+    y.oto_login.aktif = otoLoginAktif[0]; y.oto_login.sifre = ffi.string(otoLoginSifre)
     
     inicfg.save(y, iniFile); mainIni = inicfg.load(nil, iniFile); animasyonlariKaydet()
 end
@@ -646,6 +745,21 @@ if sampev_yuklu then
         if colorMatch and msgMatch then
             sampAddChatMessage(msgMatch, tonumber("0xFF"..colorMatch, 16))
             return false
+        end
+    end
+    
+    function sampev.onShowDialog(dialogId, style, title, button1, button2, text)
+        if otoLoginAktif[0] then
+            local t = title:lower()
+            if style == 1 or style == 3 then
+                if t:find("giriş") or t:find("login") or t:find("şifre") or t:find("sifre") or t:find("hesap") then
+                    local pass = ffi.string(otoLoginSifre)
+                    if pass ~= "" then
+                        sampSendDialogResponse(dialogId, 1, 0, pass)
+                        return false
+                    end
+                end
+            end
         end
     end
     
@@ -770,16 +884,12 @@ if sampev_yuklu then
     end
 end
 
--- =========================================================================
--- KaUI - BIREBIR TASARIM MOTORU
--- =========================================================================
 function ModernTemaUygula()
     local style = imgui.GetStyle()
     local colors = style.Colors
     local clr = imgui.Col
     local ImVec4 = imgui.ImVec4
 
-    -- Arkaplan boslugu sifirlandi (Resim cerceveye tamamen oturur)
     style.WindowPadding     = imgui.ImVec2(0, 0)
     style.FramePadding      = imgui.ImVec2(10, 8)
     style.ItemSpacing       = imgui.ImVec2(12, 10)
@@ -794,11 +904,11 @@ function ModernTemaUygula()
     colors[clr.ChildBg]     = ImVec4(0.00, 0.00, 0.00, 0.00) 
     style.FrameBorderSize   = 0.0
 
-    local bgDark = ImVec4(0.18, 0.18, 0.18, 1.00)
-    if animArkaplan[0] ~= 0 or bgTexture then
-        colors[clr.WindowBg] = ImVec4(0.10, 0.10, 0.10, 0.60) 
+    -- SAF SIYAH ARKA PLAN MANTIGI
+    if bgTexture then
+        colors[clr.WindowBg] = ImVec4(0.05, 0.05, 0.05, 0.85) 
     else
-        colors[clr.WindowBg] = bgDark
+        colors[clr.WindowBg] = ImVec4(0.03, 0.03, 0.03, 1.00)
     end
 
     colors[clr.PopupBg]              = ImVec4(0.15, 0.15, 0.15, 0.98)
@@ -819,7 +929,7 @@ function ModernTemaUygula()
     colors[clr.SliderGrab]           = accentColor
     colors[clr.SliderGrabActive]     = accentActive
 
-    colors[clr.Button]               = ImVec4(0.30, 0.30, 0.30, 0.85)
+    colors[clr.Button]               = ImVec4(0.20, 0.20, 0.20, 0.85)
     colors[clr.ButtonHovered]        = ImVec4(tR, tG, tB, 0.75)
     colors[clr.ButtonActive]         = ImVec4(tR, tG, tB, 1.00)
 
@@ -865,22 +975,22 @@ local newFrame = imgui.OnFrame(
         if aktifBildirim then
             local pKalan = (aktifBildirimZaman - os.clock()) / 15.0
             if pKalan > 0 then
-                imgui.SetNextWindowPos(imgui.ImVec2(sw / 2, 80), imgui.Cond.Always, imgui.ImVec2(0.5, 0.0))
-                imgui.SetNextWindowSize(imgui.ImVec2(650, 100), imgui.Cond.Always)
+                imgui.SetNextWindowPos(imgui.ImVec2(sw / 2, sh - 100), imgui.Cond.Always, imgui.ImVec2(0.5, 1.0))
+                imgui.SetNextWindowSize(imgui.ImVec2(600, 90), imgui.Cond.Always)
                 imgui.PushStyleColor(imgui.Col.WindowBg, imgui.ImVec4(0.18, 0.18, 0.18, 0.98))
-                imgui.PushStyleVarFloat(imgui.StyleVar.WindowRounding, 15.0)
+                imgui.PushStyleVarFloat(imgui.StyleVar.WindowRounding, 12.0)
                 imgui.PushStyleVarFloat(imgui.StyleVar.WindowBorderSize, 1.5)
-                imgui.PushStyleColor(imgui.Col.Border, imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 0.70))
+                imgui.PushStyleColor(imgui.Col.Border, imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 0.8))
                 
-                imgui.Begin("GlobalDuyuruUI", nil, imgui.WindowFlags.NoTitleBar + imgui.WindowFlags.NoResize + imgui.WindowFlags.NoMove)
+                imgui.Begin("GlobalDuyuruUI", nil, imgui.WindowFlags.NoTitleBar + imgui.WindowFlags.NoResize + imgui.WindowFlags.NoMove + imgui.WindowFlags.NoSavedSettings)
                 imgui.TextColored(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.00), "GLOBAL SISTEM DUYURUSU")
-                imgui.Dummy(imgui.ImVec2(0, 5))
+                imgui.Dummy(imgui.ImVec2(0, 2))
                 imgui.TextWrapped(aktifBildirimMetin)
                 
                 local dl = imgui.GetWindowDrawList()
                 local p = imgui.GetCursorScreenPos()
                 local w = imgui.GetWindowContentRegionWidth()
-                dl:AddRectFilled(imgui.ImVec2(p.x, p.y + 10), imgui.ImVec2(p.x + w, p.y + 15), imgui.GetColorU32Vec4(imgui.ImVec4(0.15, 0.15, 0.15, 1.0)), 3.0)
+                dl:AddRectFilled(imgui.ImVec2(p.x, p.y + 10), imgui.ImVec2(p.x + w, p.y + 15), imgui.GetColorU32Vec4(imgui.ImVec4(0.15, 0.15, 0.15, 0.6)), 3.0)
                 dl:AddRectFilled(imgui.ImVec2(p.x, p.y + 10), imgui.ImVec2(p.x + (w * pKalan), p.y + 15), imgui.GetColorU32Vec4(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0)), 3.0)
                 
                 imgui.End()
@@ -980,7 +1090,6 @@ local newFrame = imgui.OnFrame(
         end
 
         if dinamikHudAktif[0] and not sinematikAktif and resSpwn then
-            -- PushStyleVarVec2 ile çökme tamamen önlendi!
             imgui.PushStyleVarVec2(imgui.StyleVar.WindowPadding, imgui.ImVec2(15.0, 15.0))
             imgui.SetNextWindowBgAlpha(0.4)
             local flags = imgui.WindowFlags.NoTitleBar + imgui.WindowFlags.AlwaysAutoResize
@@ -1058,8 +1167,9 @@ local newFrame = imgui.OnFrame(
             local currentClock = os.clock()
             if currentClock < marketNotifSure then
                 local pKalan = (marketNotifSure - currentClock) / 5.0
+                local yOffset = aktifBildirim and (sh - 200) or (sh - 100)
                 
-                imgui.SetNextWindowPos(imgui.ImVec2(sw / 2, sh - 100), imgui.Cond.Always, imgui.ImVec2(0.5, 1.0))
+                imgui.SetNextWindowPos(imgui.ImVec2(sw / 2, yOffset), imgui.Cond.Always, imgui.ImVec2(0.5, 1.0))
                 imgui.SetNextWindowSize(imgui.ImVec2(600, 90), imgui.Cond.Always)
                 imgui.PushStyleColor(imgui.Col.WindowBg, imgui.ImVec4(0.18, 0.18, 0.18, 0.95))
                 imgui.PushStyleVarFloat(imgui.StyleVar.WindowRounding, 12.0)
@@ -1093,7 +1203,7 @@ local newFrame = imgui.OnFrame(
             local gecenSure = currentTime - bootStartTime
             imgui.SetNextWindowPos(imgui.ImVec2(sw/2, sh/2), imgui.Cond.Always, imgui.ImVec2(0.5, 0.5))
             imgui.SetNextWindowSize(imgui.ImVec2(400, 200), imgui.Cond.Always)
-            imgui.PushStyleColor(imgui.Col.WindowBg, imgui.ImVec4(0.15, 0.15, 0.15, 0.95))
+            imgui.PushStyleColor(imgui.Col.WindowBg, imgui.ImVec4(0.05, 0.05, 0.05, 0.95))
             imgui.PushStyleVarFloat(imgui.StyleVar.WindowRounding, 15.0)
             imgui.PushStyleVarFloat(imgui.StyleVar.Alpha, 1.0)
             
@@ -1172,7 +1282,6 @@ local newFrame = imgui.OnFrame(
         imgui.SetNextWindowPos(imgui.ImVec2(sw/2, sh/2), imgui.Cond.FirstUseEver, imgui.ImVec2(0.5, 0.5))
         imgui.SetNextWindowSize(imgui.ImVec2(1000, 700), imgui.Cond.FirstUseEver)
         
-        -- IMPLECI GIZLEYINCE TIKLAMA VE SURUKLEMEYI ONLEME GUVENLIGI (NoMouseInputs)
         local mainWindowFlags = bit.bor(imgui.WindowFlags.NoCollapse, imgui.WindowFlags.NoTitleBar)
         if not mouseAktif then
             local noMouseInputs = imgui.WindowFlags.NoMouseInputs or 512
@@ -1187,59 +1296,20 @@ local newFrame = imgui.OnFrame(
 
         if bgTexture then
             bgDrawList:AddImage(bgTexture, wPos, imgui.ImVec2(wPos.x + wSize.x, wPos.y + wSize.y))
-            bgDrawList:AddRectFilled(wPos, imgui.ImVec2(wPos.x + wSize.x, wPos.y + wSize.y), imgui.GetColorU32Vec4(imgui.ImVec4(0, 0, 0, 0.6)))
-        elseif animArkaplan[0] > 0 then 
-            local cTema = imgui.GetColorU32Vec4(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 0.4 * animProgress))
-            local cBeyaz = imgui.GetColorU32Vec4(imgui.ImVec4(1.0, 1.0, 1.0, 0.4 * animProgress))
-            local cMavi = imgui.GetColorU32Vec4(imgui.ImVec4(0.5, 0.8, 1.0, 0.4 * animProgress))
-            
-            for _, p in ipairs(bgParticles) do
-                if animArkaplan[0] == 1 then
-                    p.y = p.y + p.speed
-                    if p.y > wSize.y then p.y = 0; p.x = math.random() * wSize.x end
-                    bgDrawList:AddCircleFilled(imgui.ImVec2(wPos.x + p.x, wPos.y + p.y), p.size, cBeyaz)
-                elseif animArkaplan[0] == 2 then
-                    p.y = p.y + (p.speed * 2.5)
-                    if p.y > wSize.y then p.y = 0; p.x = math.random() * wSize.x end
-                    bgDrawList:AddRectFilled(imgui.ImVec2(wPos.x + p.x, wPos.y + p.y), imgui.ImVec2(wPos.x + p.x + 2, wPos.y + p.y + p.size * 5), cTema)
-                elseif animArkaplan[0] == 3 then
-                    p.y = p.y + (p.speed * 0.8)
-                    p.phase = p.phase + 0.02
-                    local sway = math.sin(p.phase) * 1.5
-                    if p.y > wSize.y then p.y = 0; p.x = math.random() * wSize.x end
-                    bgDrawList:AddCircleFilled(imgui.ImVec2(wPos.x + p.x + sway, wPos.y + p.y), p.size * 1.2, cBeyaz)
-                elseif animArkaplan[0] == 4 then
-                    p.y = p.y - (p.speed * 1.2)
-                    p.phase = p.phase + 0.03
-                    local sway = math.cos(p.phase) * 2.0
-                    if p.y < 0 then p.y = wSize.y; p.x = math.random() * wSize.x end
-                    bgDrawList:AddCircle(imgui.ImVec2(wPos.x + p.x + sway, wPos.y + p.y), p.size * 3.0, cMavi, 0, 1.5)
-                elseif animArkaplan[0] == 5 then
-                    p.y = p.y + (p.speed * 3.0)
-                    p.x = p.x - (p.speed * 3.0)
-                    if p.y > wSize.y or p.x < 0 then p.y = 0; p.x = wSize.x + (math.random() * 500) end
-                    bgDrawList:AddLine(imgui.ImVec2(wPos.x + p.x, wPos.y + p.y), imgui.ImVec2(wPos.x + p.x + p.size*10, wPos.y + p.y - p.size*10), cTema, 2.0)
-                end
-            end
+            bgDrawList:AddRectFilled(wPos, imgui.ImVec2(wPos.x + wSize.x, wPos.y + wSize.y), imgui.GetColorU32Vec4(imgui.ImVec4(0.05, 0.05, 0.05, 0.4)))
         end
         
         imgui.SetCursorPos(imgui.ImVec2(24, 20))
         imgui.TextColored(imgui.ImVec4(1.0, 1.0, 1.0, 1.0), "\xE2\x99\xA0 KaUI")
         imgui.SetCursorPos(imgui.ImVec2(24, 45))
-        imgui.TextColored(imgui.ImVec4(0.70, 0.70, 0.70, 1.0), "SAMP MULTIPURPOSE CONFIGURATOR")
+        imgui.TextColored(imgui.ImVec4(0.80, 0.80, 0.80, 1.0), "SAMP MULTIPURPOSE CONFIGURATOR")
         
         imgui.SetCursorPos(imgui.ImVec2(wSize.x - 38, 18))
-        imgui.PushStyleVarFloat(imgui.StyleVar.FrameRounding, 4.0)
-        imgui.PushStyleVarVec2(imgui.StyleVar.FramePadding, imgui.ImVec2(0, 0))
-        imgui.PushStyleColor(imgui.Col.Button, imgui.ImVec4(0.2, 0.2, 0.2, 1.0))
-        imgui.PushStyleColor(imgui.Col.ButtonHovered, imgui.ImVec4(0.8, 0.3, 0.3, 1.0))
-        imgui.PushStyleColor(imgui.Col.ButtonActive, imgui.ImVec4(1.0, 0.4, 0.4, 1.0))
-        imgui.PushStyleColor(imgui.Col.Text, imgui.ImVec4(1.0, 1.0, 1.0, 1.0))
-        if imgui.Button("X", imgui.ImVec2(22, 22)) then 
-            animState = 3 
-        end
-        imgui.PopStyleColor(4)
-        imgui.PopStyleVar(2)
+        if imgui.InvisibleButton("KapatX", imgui.ImVec2(22, 22)) then animState = 3 end
+        local isHoverX = imgui.IsItemHovered()
+        local bgX = isHoverX and imgui.GetColorU32Vec4(imgui.ImVec4(0.8, 0.3, 0.3, 1.0)) or imgui.GetColorU32Vec4(imgui.ImVec4(0.2, 0.2, 0.2, 1.0))
+        bgDrawList:AddRectFilled(imgui.ImVec2(wPos.x + wSize.x - 38, wPos.y + 18), imgui.ImVec2(wPos.x + wSize.x - 16, wPos.y + 40), bgX, 4.0)
+        bgDrawList:AddText(imgui.ImVec2(wPos.x + wSize.x - 31, wPos.y + 20), imgui.GetColorU32Vec4(imgui.ImVec4(1,1,1,1)), "X")
 
         imgui.SetCursorPos(imgui.ImVec2(0, 85))
         
@@ -2057,8 +2127,8 @@ local newFrame = imgui.OnFrame(
             end
 
         elseif seciliSekme[0] == 13 then
-            imgui.TextColored(imgui.ImVec4(1.0, 1.0, 1.0, 1.0), "OZEL KISAYOLLAR")
-            BilgiKutusu("Ozel sunucu komutlarini butonlara atayarak hizli erisim saglar.")
+            imgui.TextColored(imgui.ImVec4(1.0, 1.0, 1.0, 1.0), "OZEL KISAYOLLAR VE MAKROLAR")
+            BilgiKutusu("Ozel sunucu komutlarini butonlara veya klavye tuslarina atayarak hizli erisim saglar.")
             imgui.Dummy(imgui.ImVec2(0, 15))
             
             imgui.PushItemWidth(180)
@@ -2073,7 +2143,7 @@ local newFrame = imgui.OnFrame(
                 if AnimButton("EKLE", imgui.ImVec2(80, 30)) then
                     local isimStr, komutStr = ffi.string(inputIsim), ffi.string(inputKomut)
                     if isimStr ~= "" and komutStr ~= "" then
-                        table.insert(ozelButonlar, {isim = isimStr, komut = komutStr})
+                        table.insert(ozelButonlar, {isim = isimStr, komut = komutStr, tus = {}, bekliyor = false})
                         ayarlariKaydet()
                         ffi.copy(inputIsim, "")
                         ffi.copy(inputKomut, "")
@@ -2094,7 +2164,7 @@ local newFrame = imgui.OnFrame(
             end
             
             imgui.Dummy(imgui.ImVec2(0, 15))
-            imgui.TextColored(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0), "KAYITLI BUTONLAR")
+            imgui.TextColored(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0), "KAYITLI BUTONLAR & ATAMALAR")
             imgui.Separator()
             imgui.Dummy(imgui.ImVec2(0, 5))
             
@@ -2102,7 +2172,30 @@ local newFrame = imgui.OnFrame(
                 imgui.TextColored(imgui.ImVec4(0.85, 0.85, 0.85, 1.0), "Bu alan su an bos.")
             else
                 for i, val in ipairs(ozelButonlar) do
-                    if AnimButton(val.isim .. "##btn" .. i, imgui.ImVec2(440, 38)) then sampSendChat(u8_decode(val.komut)) end
+                    if AnimButton(val.isim .. "##btn" .. i, imgui.ImVec2(300, 38)) then sampSendChat(u8_decode(val.komut)) end
+                    imgui.SameLine()
+                    
+                    local btnW = 100
+                    local tusYazi = val.bekliyor and "Basin..." or getComboName(val.tus)
+                    if AnimButton(tusYazi .. "##btntus" .. i, imgui.ImVec2(btnW, 38)) then
+                        val.bekliyor = true
+                        bindGecikmesi = os.clock() + 0.2
+                    end
+                    
+                    imgui.SameLine()
+                    imgui.PushStyleColor(imgui.Col.Button, imgui.ImVec4(0.8, 0.3, 0.3, 0.8))
+                    imgui.PushStyleColor(imgui.Col.ButtonHovered, imgui.ImVec4(1.0, 0.4, 0.4, 1.0))
+                    if AnimButton("X##cleartus"..i, imgui.ImVec2(30, 38)) then 
+                        val.tus = {}
+                        ayarlariKaydet()
+                    end
+                    imgui.PopStyleColor(2)
+                    if imgui.IsItemHovered() then 
+                        imgui.BeginTooltip()
+                        imgui.Text("Tus atamasini kaldir")
+                        imgui.EndTooltip()
+                    end
+                    
                     imgui.SameLine(imgui.GetWindowContentRegionWidth() - 115)
                     
                     if AnimButton("Duzenle##ozduz"..i, imgui.ImVec2(75, 38)) then
@@ -2134,6 +2227,18 @@ local newFrame = imgui.OnFrame(
                     bekleSinematikTusu = true; beklePanelTusu = false; bekleMouseTusu = false; bekleCruiseTusu = false; bekleScoreboardTusu = false; bindGecikmesi = os.clock() + 0.2
                 end
                 if sinematikAktif then imgui.TextColored(imgui.ImVec4(0.4, 1.0, 0.4, 1.0), "Durum: AKTIF") else imgui.TextColored(imgui.ImVec4(1.0, 0.4, 0.4, 1.0), "Durum: KAPALI") end
+            end
+
+            if imgui.CollapsingHeader("Otomatik Sifre Girici (Auto-Login)") then
+                BilgiKutusu("Sunucu giris (Login) pencerelerine sectiginiz sifreyi otomatik yazip bypass eder.")
+                if imgui.Checkbox("Auto-Login Modulunu Aktif Et", otoLoginAktif) then ayarlariKaydet() end
+                if otoLoginAktif[0] then
+                    imgui.PushItemWidth(250)
+                    if imgui.InputText("Sifreniz##autologin", otoLoginSifre, 128, imgui.InputTextFlags.Password) then ayarlariKaydet() end
+                    imgui.PopItemWidth()
+                    imgui.SameLine()
+                    if AnimButton("Kaydet##sifrekaydet", imgui.ImVec2(80, 24)) then ayarlariKaydet() end
+                end
             end
 
             if imgui.CollapsingHeader("Dinamik HUD") then
@@ -2233,15 +2338,12 @@ local newFrame = imgui.OnFrame(
             imgui.PopItemWidth()
             imgui.Dummy(imgui.ImVec2(0, 10))
             
-            imgui.TextColored(imgui.ImVec4(0.85, 0.85, 0.85, 1.0), "Arka Plan (Icerik Disinda Kalan Alan):")
-            imgui.PushItemWidth(250)
-            if imgui.Combo("##ArkaplanSecici", animArkaplan, arkaplanItems, 6) then ayarlariKaydet() end
-            imgui.PopItemWidth()
-            
-            imgui.Dummy(imgui.ImVec2(0, 15))
-            imgui.TextColored(imgui.ImVec4(0.85, 0.85, 0.85, 1.0), "Vurgu Rengi Secimi (Menuler / Çizgiler):")
+            imgui.TextColored(imgui.ImVec4(0.85, 0.85, 0.85, 1.0), "Vurgu Rengi Secimi (Menuler / Çizgiler / Parlamalar):")
             if imgui.ColorEdit3("Tema Rengi", temaRengi) then ayarlariKaydet() end
-            imgui.TextColored(imgui.ImVec4(0.65, 0.65, 0.65, 1.0), "* Oyun klasöründeki moonloader klasörüne 'arkaplan.jpg' koyarsanız özel arka plan uygulayabilirsiniz.")
+            
+            imgui.Dummy(imgui.ImVec2(0, 10))
+            imgui.TextColored(imgui.ImVec4(0.65, 0.65, 0.65, 1.0), "* Oyun klasorundeki moonloader klasorune 'arkaplan.jpg' koyarsaniz panele ozel resim arka plan uygular.")
+            imgui.TextColored(imgui.ImVec4(0.65, 0.65, 0.65, 1.0), "* Yine moonloader klasorune 'buton_bg.jpg' atarsaniz tum butonlarinizin tasarimi o resim ile donatilir.")
             
             imgui.Dummy(imgui.ImVec2(0, 20))
             imgui.TextColored(imgui.ImVec4(temaRengi[0], temaRengi[1], temaRengi[2], 1.0), "KONTROL TUSLARI")
@@ -2444,7 +2546,6 @@ local newFrame = imgui.OnFrame(
                 imgui.Dummy(imgui.ImVec2(0, 5))
                 if yuklenenSSTexture then
                     local pW = imgui.GetWindowContentRegionWidth()
-                    -- Gorseli tam ortalamak ve tam sigdirmak icin hesaplama
                     imgui.SetCursorPosX((imgui.GetWindowWidth() - pW) / 2)
                     imgui.Image(yuklenenSSTexture, imgui.ImVec2(pW, 310))
                     imgui.Dummy(imgui.ImVec2(0, 5))
@@ -2501,7 +2602,61 @@ function main()
     while true do
         wait(0)
         
-        if not beklePanelTusu and not bekleMouseTusu and not bekleCruiseTusu and not bekleSinematikTusu and not bekleScoreboardTusu then
+        local herhangiOzelTusBekliyor = false
+        for i, v in ipairs(ozelButonlar) do
+            if v.bekliyor then
+                herhangiOzelTusBekliyor = true
+                if os.clock() > bindGecikmesi then
+                    for kStr, vKey in pairs(vkeys) do
+                        if type(kStr) == "string" and kStr:sub(1,3) == "VK_" and wasKeyPressed(vKey) then
+                            if vKey == vkeys.VK_ESCAPE then
+                                v.bekliyor = false
+                                break
+                            elseif vKey == vkeys.VK_BACK then
+                                v.tus = {}
+                                v.bekliyor = false
+                                ayarlariKaydet()
+                                break
+                            elseif vKey == vkeys.VK_CONTROL or vKey == vkeys.VK_LCONTROL or vKey == vkeys.VK_RCONTROL or
+                                   vKey == vkeys.VK_MENU or vKey == vkeys.VK_LMENU or vKey == vkeys.VK_RMENU or
+                                   vKey == vkeys.VK_SHIFT or vKey == vkeys.VK_LSHIFT or vKey == vkeys.VK_RSHIFT then
+                                -- Mod tuşlarını geç
+                            else
+                                local combo = {}
+                                if isKeyDown(vkeys.VK_CONTROL) then table.insert(combo, vkeys.VK_CONTROL) end
+                                if isKeyDown(vkeys.VK_MENU) then table.insert(combo, vkeys.VK_MENU) end
+                                if isKeyDown(vkeys.VK_SHIFT) then table.insert(combo, vkeys.VK_SHIFT) end
+                                table.insert(combo, vKey)
+                                v.tus = combo
+                                v.bekliyor = false
+                                ayarlariKaydet()
+                                break
+                            end
+                        end
+                    end
+                end
+            end
+        end
+
+        if not (beklePanelTusu or bekleMouseTusu or bekleCruiseTusu or bekleSinematikTusu or bekleScoreboardTusu or herhangiOzelTusBekliyor) then
+            
+            for i, v in ipairs(ozelButonlar) do
+                if v.tus and type(v.tus) == "table" and #v.tus > 0 then
+                    local mainKey = v.tus[#v.tus]
+                    if wasKeyPressed(mainKey) and not sampIsChatInputActive() and not sampIsDialogActive() then
+                        local allModsDown = true
+                        for j = 1, #v.tus - 1 do
+                            if not isKeyDown(v.tus[j]) then
+                                allModsDown = false
+                                break
+                            end
+                        end
+                        if allModsDown then
+                            sampSendChat(u8_decode(v.komut))
+                        end
+                    end
+                end
+            end
             
             if seciliKisayol[0] ~= 0 and wasKeyPressed(seciliKisayol[0]) and not sampIsChatInputActive() and not sampIsDialogActive() then
                 if bootState == 0 then
@@ -2560,7 +2715,23 @@ function main()
 
             if isCharInAnyCar(PLAYER_PED) then
                 local car = storeCarCharIsInNoSave(PLAYER_PED)
-                if not wasInCar then wasInCar = true end
+                if not wasInCar then 
+                    wasInCar = true
+                    sesCarsUsed = sesCarsUsed + 1 
+                    
+                    if otoKemerAktif[0] then 
+                        lua_thread.create(function()
+                            wait(500) 
+                            sampSendChat("/kemer") 
+                        end)
+                    end
+                    if otoMotorAktif[0] then 
+                        lua_thread.create(function()
+                            wait(1000) 
+                            sampSendChat("/motor") 
+                        end)
+                    end
+                end
                 
                 if not bekleCruiseTusu and not beklePanelTusu and not bekleMouseTusu and not bekleSinematikTusu and not bekleScoreboardTusu then
                     if wasKeyPressed(seciliCruiseKisayol[0]) and not sampIsChatInputActive() and not sampIsDialogActive() then
@@ -2586,6 +2757,10 @@ function main()
                         if not isTurning then setCarForwardSpeed(car, cruiseSpeed) end
                     end
                 end
+                
+                local speed = getCarSpeed(car) * 3.6 
+                if speed > sesMaxSpeed then sesMaxSpeed = speed end
+                if kameraSabitleAktif[0] then ffi.cast("float*", 0xB70118)[0] = 50.0 end
             else
                 wasInCar = false
                 isCruiseActive = false
@@ -2721,16 +2896,6 @@ function main()
                         end
                     end
                 end
-            end
-
-            if isCharInAnyCar(PLAYER_PED) then
-                if not wasInCar then wasInCar = true; sesCarsUsed = sesCarsUsed + 1 end
-                local car = storeCarCharIsInNoSave(PLAYER_PED)
-                local speed = getCarSpeed(car) * 3.6 
-                if speed > sesMaxSpeed then sesMaxSpeed = speed end
-                if kameraSabitleAktif[0] then ffi.cast("float*", 0xB70118)[0] = 50.0 end
-            else
-                wasInCar = false
             end
         end
 
